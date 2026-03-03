@@ -5,7 +5,8 @@
 box_score.txt
 box_score_teams.txt
 historical_stats.txt
-Box Scores/
+Box Scores/*
+!Box Scores/.gitkeep
 
 # Excel temp files
 ~$*.xlsx
