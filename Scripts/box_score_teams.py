@@ -15,9 +15,10 @@ Example:
 
 import sys
 import tabulate
+from datetime import datetime
 from pathlib import Path
 
-from box_score import BoxScore, build_table, totals_row, DISPLAY_HEADERS
+from box_score import BoxScore, build_table, totals_row, DISPLAY_HEADERS, OUTPUT_DIR
 
 
 class BoxScoreTeams(BoxScore):
@@ -28,7 +29,9 @@ class BoxScoreTeams(BoxScore):
         table1 = build_table(team1)
         table2 = build_table(team2)
 
-        path = Path(self.dir) / 'box_score_teams.txt'
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        path = OUTPUT_DIR / f'box_score_teams_{timestamp}.txt'
         with open(path, 'w') as f:
             f.write("--- Team 1 ---\n")
             f.write(tabulate.tabulate(table1, DISPLAY_HEADERS))

@@ -1,10 +1,11 @@
-# Game recordings (large binary/data files)
-NDJSONs/*.ndjson
-NDJSONs/*.csv
+# Game recordings
+*.ndjson
 
 # Generated output
 box_score.txt
-season_stats.txt
+box_score_teams.txt
+historical_stats.txt
+Box Scores/
 
 # Excel temp files
 ~$*.xlsx
@@ -12,3 +13,10 @@ season_stats.txt
 # Python
 __pycache__/
 *.pyc
+
+# Editor / tool settings
+.claude/
+
+# Data files
+*.xlsx
+*.csv

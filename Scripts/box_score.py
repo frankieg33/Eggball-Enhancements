@@ -16,11 +16,19 @@ import ndjson
 import os
 import sys
 import tabulate
+from datetime import datetime
 from pathlib import Path
 
+OUTPUT_DIR = Path(__file__).parent.parent / 'Box Scores'
+
+# Players to exclude from all output. Add names (lowercase) to hide them.
+EXCLUDE_PLAYERS = {
+    # 'blaster',
+}
+
 DISPLAY_HEADERS = [
-    'Player', 'Hold', 'Egg Start', 'Receptions', 'Ints Caught', 'Tags',
-    'Touches', 'Hold Time', 'Self Passes', 'Touches w/ SP',
+    'Player', 'Hold (secs)', 'Egg Start', 'Receptions', 'Ints Caught', 'Tags',
+    'Total Touches', 'Time Held PP', 'Self Passes', 'Touches w/ SP',
     'Completions', 'Caps', 'Raps Thrown', 'Raps Caught',
     'Good', 'Good %', 'Ints Thrown', 'Tagged', 'Bad', 'Bad %'
 ]
@@ -67,12 +75,40 @@ def totals_row(rows):
     return result
 
 
+def _should_exclude(name):
+    lower = name.lower()
+    return lower in EXCLUDE_PLAYERS or lower.startswith('some ball')
+
+
 def build_table(final):
     """Return sorted player rows + totals row for all players in final."""
-    rows = [player_row(name, p) for name, p in final.items()]
+    rows = [player_row(name, p) for name, p in final.items()
+            if not _should_exclude(name)]
     rows.sort(key=lambda r: float(r[19].rstrip('%')))
     if rows:
         rows.append(totals_row(rows))
+    return rows
+
+
+def build_per_game_table(final, n_games):
+    """Return a per-game stats table: each player's raw stats divided by n_games.
+    Percentages and Hold Time are rates and stay unchanged."""
+    keep_same = _AVG_FLOAT_IDX | _AVG_PCT_IDX  # indices 7, 15, 19
+
+    def pg_player_row(name, p):
+        base = player_row(name, p)
+        row = [name]
+        for i in range(1, len(DISPLAY_HEADERS)):
+            val = base[i]
+            if i in keep_same:
+                row.append(val)
+            else:
+                row.append(round(val / n_games, 1))
+        return row
+
+    rows = [pg_player_row(name, p) for name, p in final.items()
+            if not _should_exclude(name)]
+    rows.sort(key=lambda r: float(r[19].rstrip('%')))
     return rows
 
 
@@ -130,7 +166,8 @@ class BoxScore:
                     prevHolder['caps'] += 1
                     prevHolder['hold'] += ((timestamp - caughtAt) / 1000)
                 except KeyError:
-                    sys.stderr.write('No prevHolder ' + str(timestamp))
+                    # sys.stderr.write('No prevHolder ' + str(timestamp))
+                    pass
                 waiting_last = True
                 continue
             waiting_last = False
@@ -229,7 +266,9 @@ class BoxScore:
 
     def print_box_score(self, final):
         table = build_table(final)
-        path = Path(self.dir) / 'box_score.txt'
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        path = OUTPUT_DIR / f'box_score_{timestamp}.txt'
         with open(path, 'w') as f:
             f.write(tabulate.tabulate(table, DISPLAY_HEADERS))
         print(f"Written to {path}")

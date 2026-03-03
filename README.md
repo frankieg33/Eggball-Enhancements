@@ -48,7 +48,7 @@ pip install ndjson tabulate
 
 1. Install the [tagpro-vcr](https://github.com/bash-tp/tagpro-vcr) Tampermonkey script to record games automatically.
 
-2. In the tagpro-vcr script settings, bump these values up so more games are saved:
+2. In the tagpro-vcr script, bump these values up so more games are saved:
    ```
    this._save = 100;
    this._shortSeconds = 30;
@@ -58,60 +58,62 @@ pip install ndjson tabulate
 
 ### Folder structure
 
-Organize your NDJSONs into dated subfolders inside the `NDJSONs/` folder — one subfolder per game day:
-
 ```
 NDJSONs/
-  2024-04-17/
-    tagpro-recording-1713317955186.ndjson
-    tagpro-recording-1713318542626.ndjson
-  2024-05-01/
-    tagpro-recording-xxx.ndjson
+  Last Session/    ← put this session's NDJSONs here before running box score
+  All Games/       ← copy every session's NDJSONs here to build career history
 ```
 
 **No player lists needed** — all players are auto-detected from the files.
 
----
+### Workflow
 
-### box_score.py — Single session, all players
-
-Generates a box score for all players in one game day. Everyone appears in a single table sorted by Bad% (best first).
-
-```
-python box_score.py "NDJSONs/2024-04-17/"
-```
-
-Or double-click **`run_box_score.bat`** and type the folder name when prompted.
-
-Output: `NDJSONs/2024-04-17/box_score.txt`
+1. Download this session's NDJSONs from the TagPro replay viewer
+2. Drop them into `NDJSONs/Last Session/` (replace the previous session's files)
+3. Also copy them into `NDJSONs/All Games/` to accumulate history
+4. Double-click the bat file for the report you want
 
 ---
 
-### box_score_teams.py — Single session, split by team
+### box_score.py — Last session, all players
 
-Same as above but splits the output into Team 1 and Team 2 tables using the in-game team assignments recorded in the NDJSON. Best used for sessions where teams stayed fixed.
+Generates a box score for everyone in the last session. All players in one table sorted by Bad% (best first).
 
 ```
-python box_score_teams.py "NDJSONs/2024-04-17/"
+python box_score.py "NDJSONs/Last Session/"
+```
+
+Or double-click **`run_box_score.bat`**.
+
+Output: `NDJSONs/Last Session/box_score.txt`
+
+---
+
+### box_score_teams.py — Last session, split by team
+
+Same as above but splits into Team 1 and Team 2 using the in-game team assignments from the NDJSON. Best used for sessions where teams stayed fixed the whole time.
+
+```
+python box_score_teams.py "NDJSONs/Last Session/"
 ```
 
 Or double-click **`run_box_score_teams.bat`**.
 
-Output: `NDJSONs/2024-04-17/box_score_teams.txt`
+Output: `NDJSONs/Last Session/box_score_teams.txt`
 
 ---
 
-### season_stats.py — Career tracking across all sessions
+### historical_stats.py — Career tracking across all sessions
 
-Reads every dated subfolder in `NDJSONs/`, prints a box score per game day, and appends all-time career totals at the end. This replaces the need to manually copy data into a spreadsheet.
+Reads every NDJSON in `All Games/`, groups them by session date, and outputs a box score per session followed by all-time career totals. Replaces manual spreadsheet tracking.
 
 ```
-python season_stats.py "NDJSONs/"
+python historical_stats.py "NDJSONs/All Games/"
 ```
 
-Or double-click **`run_season_stats.bat`**.
+Or double-click **`run_historical_stats.bat`**.
 
-Output: `NDJSONs/season_stats.txt`
+Output: `NDJSONs/All Games/historical_stats.txt`
 
 ---
 
