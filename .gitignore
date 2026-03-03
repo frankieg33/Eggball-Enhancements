@@ -1,0 +1,14 @@
+# Game recordings (large binary/data files)
+NDJSONs/*.ndjson
+NDJSONs/*.csv
+
+# Generated output
+box_score.txt
+season_stats.txt
+
+# Excel temp files
+~$*.xlsx
+
+# Python
+__pycache__/
+*.pyc
