@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EggPro
-// @version      1.11
+// @version      1.12
 // @description  Tweaks for Egg Ball
-// @author       Catalyst
+// @author       frankieg33
 // @include      https://*.koalabeast.com/game
 // @include      https://*.koalabeast.com/game?*
 // @include      https://koalabeast.com/game
@@ -17,6 +17,9 @@
 
 //--------------CHANGELOG--------------
 /*
+~~~Version 1.12 (March 4, 2026)~~~
+Changed how the script functions to restore functionality, primarily to the pixel perfect ball. All changes were made by Codex, so revert to 1.11 if issues occur.
+
 ~~~Version 1.11 (March 2, 2026)~~~
 Script was broken, so I updated 'PIXI.Sprite.from' and 'stage.interactive' to get the script working again.
 Froked from catalyst518 here - https://gist.github.com/catalyst518/f28accf3d14385470a330ab80c768ee1
@@ -206,7 +209,13 @@ var flash_passer=false;
 
 var oldh=0;
 var oldw=0;
+var tileSize = 40;
+var tileHalf = tileSize / 2;
+var playerCameraOffset = tileHalf - 1;
+var heldEggSize = 23;
+var heldEggOffset = (tileSize - heldEggSize) / 2;
 var eggball=false;
+var eggHolderId = null;
 var lastHolder=null;
 var flashInterval=null;
 var flashTimeout=null;
@@ -229,6 +238,46 @@ function flashPlayer(){
     lastHolder.sprite.alpha=lastHolder.sprite.alpha==1 ? .5: 1;
 }
 
+function normalizeHolderId(raw) {
+    if (raw === null || raw === undefined) {
+        return null;
+    }
+    if (typeof raw === "string" || typeof raw === "number") {
+        return raw;
+    }
+    if (typeof raw === "object") {
+        if (raw.id !== undefined && raw.id !== null) {
+            return raw.id;
+        }
+        if (raw.playerId !== undefined && raw.playerId !== null) {
+            return raw.playerId;
+        }
+        if (raw.holder !== undefined && raw.holder !== null) {
+            return raw.holder;
+        }
+    }
+    return null;
+}
+
+function getHolderIdFromEggBallData(data) {
+    var candidates = [
+        data && data.holder,
+        data && data.holderId,
+        data && data.player,
+        data && data.playerId,
+        data && data.id,
+        data && data.carrier,
+        data && data.ballHolder
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+        var normalized = normalizeHolderId(candidates[i]);
+        if (normalized !== null) {
+            return normalized;
+        }
+    }
+    return null;
+}
+
 tagpro.ready(function() {
     tagpro.socket.on('map', function(data) {
         if (data.info.name=="eggball"){
@@ -241,11 +290,12 @@ tagpro.ready(function() {
 
     tagpro.socket.on("eggBall", function(data) {
         gameState = data.state;
-        eggHolder = tagpro.players[data.holder];
-        if(auto_shoot && (autom ||autokey) && eggHolder===tagpro.players[tagpro.playerId]){
+        eggHolderId = getHolderIdFromEggBallData(data);
+        eggHolder = eggHolderId === null ? null : tagpro.players[eggHolderId];
+        if(auto_shoot && (autom ||autokey) && eggHolderId == tagpro.playerId){
             autoShoot();
         }
-        if (data.holder===null && gameState==="play"){
+        if (eggHolderId === null && gameState==="play"){
             if (pass_sound && lastHolder!==tagpro.players[tagpro.playerId]){
                 tagpro.playSound("throw", 1);
             }
@@ -317,12 +367,12 @@ tagpro.ready(function() {
             try {
                 player.sprites.aim.clear();
                 player.sprites.aim.lineStyle(2, aim_line_color, aim_line_alpha);
-                player.sprites.aim.moveTo(20,20);
+                player.sprites.aim.moveTo(tileHalf, tileHalf);
                 if (spec_only){
-                    player.sprites.aim.lineTo((e.clientX-window.innerWidth/2)*1280/$('#viewport').width()+20, (e.clientY-window.innerHeight/2)*800/$('#viewport').height()+20);
+                    player.sprites.aim.lineTo((e.clientX-window.innerWidth/2)*1280/$('#viewport').width()+tileHalf, (e.clientY-window.innerHeight/2)*800/$('#viewport').height()+tileHalf);
                 }
                 else {
-                    player.sprites.aim.lineTo((e.clientX-window.innerWidth/2)+20, (e.clientY-window.innerHeight/2)+20);
+                    player.sprites.aim.lineTo((e.clientX-window.innerWidth/2)+tileHalf, (e.clientY-window.innerHeight/2)+tileHalf);
                 }
             }
             catch (err){
@@ -335,7 +385,7 @@ tagpro.ready(function() {
     if (lock_ball){
         tagpro.renderer.updateCameraPosition = function (player) {
             if (player.sprite.x !== -1000 && player.sprite.y !== -1000) {
-                tagpro.renderer.centerContainerToPoint(player.sprite.x + 19, player.sprite.y + 19);
+                tagpro.renderer.centerContainerToPoint(player.sprite.x + playerCameraOffset, player.sprite.y + playerCameraOffset);
             }
         };
     }
@@ -383,12 +433,116 @@ tagpro.ready(function() {
     var eggHolder = null;
     var realUpdatePlayerPowerUps = tagpro.renderer.updatePlayerPowerUps;
 
+    function getPlayerId(player) {
+        if (!player) {
+            return null;
+        }
+        if (player.id !== undefined && player.id !== null) {
+            return player.id;
+        }
+        if (player.playerId !== undefined && player.playerId !== null) {
+            return player.playerId;
+        }
+        for (var id in tagpro.players) {
+            if (tagpro.players[id] === player) {
+                return id;
+            }
+        }
+        return null;
+    }
+
+    function setNativeEggAlpha(player, alpha) {
+        if (!player || !player.sprites) {
+            return;
+        }
+        var possibleKeys = ["egg", "eggball", "eggBall", "hourglass", "powerup", "powerups", "powerUps"];
+        for (var i = 0; i < possibleKeys.length; i++) {
+            var sprite = player.sprites[possibleKeys[i]];
+            if (sprite) {
+                sprite.alpha = alpha;
+            }
+        }
+        for (var key in player.sprites) {
+            if (!Object.prototype.hasOwnProperty.call(player.sprites, key) || key === "egg2") {
+                continue;
+            }
+            var keyLc = key.toLowerCase();
+            if (keyLc.indexOf("egg") === -1 && keyLc.indexOf("hour") === -1 && keyLc.indexOf("powerup") === -1) {
+                continue;
+            }
+            var spriteByKey = player.sprites[key];
+            if (spriteByKey && spriteByKey.alpha !== undefined) {
+                spriteByKey.alpha = alpha;
+            }
+        }
+        var possibleContainers = ["powerup", "powerups", "powerUps"];
+        for (var j = 0; j < possibleContainers.length; j++) {
+            var container = player.sprites[possibleContainers[j]];
+            if (container && container.children) {
+                for (var k = 0; k < container.children.length; k++) {
+                    container.children[k].alpha = alpha;
+                }
+            }
+        }
+    }
+
+    function ensureHeldEggSprite(player) {
+        if (!player.sprites.egg2) {
+            player.sprites.egg2 = PIXI.Sprite.from(egg_url);
+            player.sprites.egg2.width = heldEggSize;
+            player.sprites.egg2.height = heldEggSize;
+            player.sprites.egg2.x = heldEggOffset;
+            player.sprites.egg2.y = heldEggOffset;
+            if (player.sprites.ball) {
+                player.sprites.ball.addChild(player.sprites.egg2);
+            }
+            else {
+                player.sprite.addChild(player.sprites.egg2);
+            }
+        }
+        return player.sprites.egg2;
+    }
+
+    function playerIsEggHolder(player) {
+        var playerId = getPlayerId(player);
+        if (eggHolderId !== null && playerId !== null && String(playerId) === String(eggHolderId)) {
+            return true;
+        }
+        if (eggHolder) {
+            var holderId = getPlayerId(eggHolder);
+            if (holderId !== null && playerId !== null && String(playerId) === String(holderId)) {
+                return true;
+            }
+            if (eggHolder === player) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function syncHeldEggForPlayer(player) {
+        if (!player || !player.sprites) {
+            return;
+        }
+        if (pp_egg && eggball) {
+            var isHolder = playerIsEggHolder(player);
+            var heldEgg = ensureHeldEggSprite(player);
+            heldEgg.alpha = isHolder ? 1 : 0;
+            setNativeEggAlpha(player, isHolder ? 0 : 1);
+            return;
+        }
+        if (player.sprites.egg2) {
+            player.sprites.egg2.alpha = 0;
+        }
+        setNativeEggAlpha(player, 1);
+    }
+
     if (imp_map){
         tagpro.renderer.afterDrawBackground = function() {
             if(eggball){
                 const fieldSprite = PIXI.Sprite.from(field_url);
-                fieldSprite.x = 40;
-                fieldSprite.y = 40;
+                fieldSprite.x = tileSize;
+                fieldSprite.y = tileSize;
                 tagpro.renderer.layers.foreground.addChildAt(fieldSprite, 0);}
         };
     }
@@ -396,19 +550,7 @@ tagpro.ready(function() {
     try{
         tagpro.renderer.updatePlayerPowerUps = function (player, context, drawPos) {
             realUpdatePlayerPowerUps(player, context, drawPos);
-            if (pp_egg && eggball){
-                if (!player.sprites.egg2) {
-                    player.sprites.egg2 = PIXI.Sprite.from(egg_url);
-                    player.sprites.egg2.width = 23;
-                    player.sprites.egg2.height = 23;
-                    player.sprites.egg2.x = 8;
-                    player.sprites.egg2.y = 8;
-                    player.sprite.addChildAt(player.sprites.egg2,1);
-                }
-                player.sprites.egg2.alpha = eggHolder === player ? 1 : 0;
-                if (player.sprites.egg){
-                    player.sprites.egg.alpha = 0;}
-            }
+            syncHeldEggForPlayer(player);
         };}
     catch(err){
         //Not egg mode
@@ -468,8 +610,8 @@ tagpro.ready(function() {
 
     tagpro.renderer.updateMarsBall = function(object, position) {
         if (object.type == "egg") {
-            position.x = position.x + 20;
-            position.y = position.y + 20;
+            position.x = position.x + tileHalf;
+            position.y = position.y + tileHalf;
         }
 
         oldUpdateMarsball(object, position);
@@ -491,8 +633,8 @@ tagpro.ready(function() {
             object.sprite = PIXI.Sprite.from("events/easter-2016/images/egg.png");}
         object.sprite.position.x = position.x;
         object.sprite.position.y = position.y;
-        object.sprite.width = 23;
-        object.sprite.height = 23;
+        object.sprite.width = heldEggSize;
+        object.sprite.height = heldEggSize;
         if (egg_timer) {
             object.sprite.tint = 0x00FF63;
             setTimeout(function () {
@@ -502,7 +644,7 @@ tagpro.ready(function() {
                 object.sprite.tint = 0xFFFFFF;
             }, 3000);
         }
-        object.sprite.pivot.set(23*0.5, 23*0.5);
+        object.sprite.pivot.set(heldEggSize * 0.5, heldEggSize * 0.5);
         tagpro.renderer.layers.foreground.addChild(object.sprite);
         object.sprite.keep = true;
         if (!object.draw) {
@@ -530,6 +672,7 @@ tagpro.ready(function() {
             player.sprites.ball.addChild(player.sprites.highlight);
         }
         defaultUpdatePlayerSpritePosition(player);
+        syncHeldEggForPlayer(player);
     };
 
     function waitForId() {
@@ -634,8 +777,8 @@ function updateFOV() {
     //Auto-zoom to fill viewport
     if(tagpro.spectator && auto_zoom && (oldh!=h ||oldw!=w))
     {
-        var yzoom=tagpro.map[0].length*40/h;
-        var xzoom=tagpro.map.length*40/w;
+        var yzoom=tagpro.map[0].length*tileSize/h;
+        var xzoom=tagpro.map.length*tileSize/w;
         tagpro.zoom=Math.max(xzoom,yzoom,1);
     }
     oldh=h;

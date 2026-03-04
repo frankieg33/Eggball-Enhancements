@@ -13,6 +13,7 @@ Example:
     python box_score_teams.py "NDJSONs/2024-04-17/"
 """
 
+import csv
 import sys
 import tabulate
 from datetime import datetime
@@ -31,6 +32,8 @@ class BoxScoreTeams(BoxScore):
 
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         OUTPUT_DIR.mkdir(exist_ok=True)
+        
+        # Write TXT
         path = OUTPUT_DIR / f'box_score_teams_{timestamp}.txt'
         with open(path, 'w') as f:
             f.write("--- Team 1 ---\n")
@@ -38,6 +41,19 @@ class BoxScoreTeams(BoxScore):
             f.write("\n\n--- Team 2 ---\n")
             f.write(tabulate.tabulate(table2, DISPLAY_HEADERS))
         print(f"Written to {path}")
+
+        # Write CSV
+        csv_path = OUTPUT_DIR / f'box_score_teams_{timestamp}.csv'
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["--- Team 1 ---"])
+            writer.writerow(DISPLAY_HEADERS)
+            writer.writerows(table1)
+            writer.writerow([])
+            writer.writerow(["--- Team 2 ---"])
+            writer.writerow(DISPLAY_HEADERS)
+            writer.writerows(table2)
+        print(f"Written to {csv_path}")
 
 
 if __name__ == '__main__':

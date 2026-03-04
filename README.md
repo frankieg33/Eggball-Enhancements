@@ -81,20 +81,6 @@ Output: `NDJSONs/Last Session/box_score.txt`
 
 ---
 
-### box_score_teams.py — Last session, split by team
-
-Same as above but splits into Team 1 and Team 2 using the in-game team assignments from the NDJSON. Best used for sessions where teams stayed fixed the whole time.
-
-```
-python box_score_teams.py "NDJSONs/Last Session/"
-```
-
-Or double-click **`run_box_score_teams.bat`**.
-
-Output: `NDJSONs/Last Session/box_score_teams.txt`
-
----
-
 ### historical_stats.py — Career tracking across all sessions
 
 Reads every NDJSON in `All Games/`, groups them by session date, and outputs a box score per session followed by all-time career totals. Replaces manual spreadsheet tracking.
@@ -106,6 +92,20 @@ python historical_stats.py "NDJSONs/All Games/"
 Or double-click **`run_historical_stats.bat`**.
 
 Output: `NDJSONs/All Games/historical_stats.txt`
+
+---
+
+### box_score_teams.py — Last session, split by team
+
+Same as above but splits into Team 1 and Team 2 using the in-game team assignments from the NDJSON. Best used for sessions where teams stayed fixed the whole time.
+
+```
+python box_score_teams.py "NDJSONs/Last Session/"
+```
+
+Or double-click **`run_box_score_teams.bat`**.
+
+Output: `NDJSONs/Last Session/box_score_teams.txt`
 
 ---
 

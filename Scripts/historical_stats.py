@@ -11,6 +11,7 @@ Usage:
     python historical_stats.py "<ALL_GAMES_DIR>"
 """
 
+import csv
 import ndjson
 import os
 import sys
@@ -83,6 +84,7 @@ def main():
         sessions.append((date, len(games_by_date[date]), day_final))
 
     sections = []
+    csv_rows = []
     total_games = sum(n for _, n, _ in sessions)
 
     # --- 1. Career totals ---
@@ -94,6 +96,10 @@ def main():
     sections.append(f"{'=' * 60}\n")
     sections.append(tabulate_mod.tabulate(career_table, DISPLAY_HEADERS))
 
+    csv_rows.append([f"CAREER TOTALS ({len(sessions)} sessions, {total_games} games)"])
+    csv_rows.append(DISPLAY_HEADERS)
+    csv_rows.extend(career_table)
+
     # --- 2. Career per game ---
     pg_table = build_per_game_table(career_final, total_games)
 
@@ -101,6 +107,11 @@ def main():
     sections.append(f"  CAREER PER GAME  ({total_games} games)")
     sections.append(f"{'=' * 60}\n")
     sections.append(tabulate_mod.tabulate(pg_table, DISPLAY_HEADERS))
+
+    csv_rows.append([])
+    csv_rows.append([f"CAREER PER GAME ({total_games} games)"])
+    csv_rows.append(DISPLAY_HEADERS)
+    csv_rows.extend(pg_table)
 
     # --- 3. Sessions, most recent first ---
     for date, n_games, day_final in reversed(sessions):
@@ -111,12 +122,26 @@ def main():
         sections.append(f"{'=' * 60}\n")
         sections.append(tabulate_mod.tabulate(table, DISPLAY_HEADERS))
 
+        csv_rows.append([])
+        csv_rows.append([f"Session: {date} ({n_games} game{'s' if n_games != 1 else ''})"])
+        csv_rows.append(DISPLAY_HEADERS)
+        csv_rows.extend(table)
+
     timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
     OUTPUT_DIR.mkdir(exist_ok=True)
+    
+    # Write TXT
     output_path = OUTPUT_DIR / f'historical_stats_{timestamp}.txt'
     with open(output_path, 'w') as f:
         f.write('\n'.join(sections))
     print(f"Written to {output_path}")
+
+    # Write CSV
+    csv_path = OUTPUT_DIR / f'historical_stats_{timestamp}.csv'
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(csv_rows)
+    print(f"Written to {csv_path}")
 
 
 if __name__ == '__main__':

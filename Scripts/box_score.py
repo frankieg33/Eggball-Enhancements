@@ -12,6 +12,7 @@ Example:
     python box_score.py "NDJSONs/2024-04-17/"
 """
 
+import csv
 import ndjson
 import os
 import sys
@@ -268,10 +269,20 @@ class BoxScore:
         table = build_table(final)
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         OUTPUT_DIR.mkdir(exist_ok=True)
+        
+        # Write TXT
         path = OUTPUT_DIR / f'box_score_{timestamp}.txt'
         with open(path, 'w') as f:
             f.write(tabulate.tabulate(table, DISPLAY_HEADERS))
         print(f"Written to {path}")
+
+        # Write CSV
+        csv_path = OUTPUT_DIR / f'box_score_{timestamp}.csv'
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(DISPLAY_HEADERS)
+            writer.writerows(table)
+        print(f"Written to {csv_path}")
 
 
 if __name__ == '__main__':
