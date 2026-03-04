@@ -46,15 +46,7 @@ pip install ndjson tabulate
 
 ### Getting game recordings (NDJSONs)
 
-1. Install the [tagpro-vcr](https://github.com/bash-tp/tagpro-vcr) Tampermonkey script to record games automatically.
-
-2. In the tagpro-vcr script, bump these values up so more games are saved:
-   ```
-   this._save = 100;
-   this._shortSeconds = 30;
-   ```
-
-3. After playing, go to the TagPro replay viewer, find your games, and download them as `.ndjson` files.
+1. As long as you have track stats on in your settings, games are automatically recorded. After playing, go to the replay section on top of the tagpro homepage, find the games in question, and download the `.ndjson` files.
 
 ### Folder structure
 
