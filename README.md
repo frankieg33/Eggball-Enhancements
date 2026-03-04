@@ -13,7 +13,7 @@ A Tampermonkey userscript that improves the Eggball experience with a zoomed-out
 1. Install [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo) for Chrome or Edge.
 
 2. Install the script:
-   - Open `EggPro.user.js` from this repo in Tampermonkey (or install directly from the [original Gist](https://gist.github.com/catalyst518/f28accf3d14385470a330ab80c768ee1))
+   - Open `EggPro.user.js` from this repo in Tampermonkey (or install directly [here](https://gist.github.com/frankieg33/ee459e2707b44f33db8b6035a6c91292)
    - In the Tampermonkey dashboard, click the pencil icon to edit
    - Scroll to the `SETTINGS` section and customize as desired
    - Save (do not save to disk)
@@ -135,6 +135,7 @@ Output: `NDJSONs/All Games/historical_stats.txt`
 
 ---
 
-## Optional: Highlight clips
+## Highlight clips
 
-The [TagPro Replays](https://chromewebstore.google.com/detail/tagproreplays/ejbnakhldlocljfcglmeibhhdnmmcodh) Chrome extension lets you clip highlights from recorded games.
+To share highlights, use the native replay system. Find the highlight, click share and "Start at XX:XX" to link to a specific time in the replay. 
+This extension [TagPro Replays](https://chromewebstore.google.com/detail/tagproreplays/ejbnakhldlocljfcglmeibhhdnmmcodh) was the jam although no longer works.
