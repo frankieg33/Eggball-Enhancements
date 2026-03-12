@@ -14,21 +14,48 @@ Example:
 """
 
 import csv
+import os
 import sys
 import tabulate
 from datetime import datetime
 from pathlib import Path
 
-from box_score import BoxScore, build_table, totals_row, DISPLAY_HEADERS, OUTPUT_DIR
+import ndjson
+
+from box_score import BoxScore, build_table, DISPLAY_HEADERS, OUTPUT_DIR, write_formatted_xlsx
 
 
 class BoxScoreTeams(BoxScore):
+    def produce_stats(self):
+        records = []
+        for filename in os.listdir(self.dir):
+            if not filename.endswith('.ndjson'):
+                continue
+            path = Path(self.dir) / filename
+            with open(path) as f:
+                try:
+                    data = ndjson.load(f)
+                    records.extend(self.one_game(data))
+                except ValueError:
+                    continue
+        final = self.merge_results(records)
+        self.print_box_score(final)
+
     def print_box_score(self, final):
         team1 = {name: p for name, p in final.items() if p['team'] == 1}
         team2 = {name: p for name, p in final.items() if p['team'] == 2}
 
         table1 = build_table(team1)
         table2 = build_table(team2)
+        csv_rows = [
+            ['TEAM 1'],
+            DISPLAY_HEADERS,
+            *table1,
+            [],
+            ['TEAM 2'],
+            DISPLAY_HEADERS,
+            *table2,
+        ]
 
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         OUTPUT_DIR.mkdir(exist_ok=True)
@@ -46,14 +73,12 @@ class BoxScoreTeams(BoxScore):
         csv_path = OUTPUT_DIR / f'box_score_teams_{timestamp}.csv'
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["--- Team 1 ---"])
-            writer.writerow(DISPLAY_HEADERS)
-            writer.writerows(table1)
-            writer.writerow([])
-            writer.writerow(["--- Team 2 ---"])
-            writer.writerow(DISPLAY_HEADERS)
-            writer.writerows(table2)
+            writer.writerows(csv_rows)
         print(f"Written to {csv_path}")
+
+        xlsx_path = OUTPUT_DIR / f'box_score_teams_{timestamp}.xlsx'
+        write_formatted_xlsx(xlsx_path, csv_rows)
+        print(f"Written to {xlsx_path}")
 
 
 if __name__ == '__main__':

@@ -19,6 +19,10 @@ import sys
 import tabulate
 from datetime import datetime
 from pathlib import Path
+from collections import defaultdict
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 OUTPUT_DIR = Path(__file__).parent.parent / 'Box Scores'
 
@@ -113,6 +117,240 @@ def build_per_game_table(final, n_games):
     return rows
 
 
+def infer_game_format(data):
+    """Return '5v5', '6v6', or 'other' based on roster size."""
+    if data:
+        first = data[0]
+        if (
+            isinstance(first, list)
+            and len(first) >= 3
+            and first[1] == 'recorder-metadata'
+            and isinstance(first[2], dict)
+        ):
+            players = first[2].get('players')
+            if isinstance(players, list):
+                team_counts = defaultdict(int)
+                for player in players:
+                    team = player.get('team')
+                    if team in (1, 2):
+                        team_counts[team] += 1
+                if team_counts[1] == 5 and team_counts[2] == 5:
+                    return '5v5'
+                if team_counts[1] == 6 and team_counts[2] == 6:
+                    return '6v6'
+
+    for line in data:
+        if line[1] == 'p' and isinstance(line[2], list) and line[2] and 'name' in line[2][0]:
+            team_counts = defaultdict(int)
+            for player in line[2]:
+                team = player.get('team')
+                if team in (1, 2):
+                    team_counts[team] += 1
+            if team_counts[1] == 5 and team_counts[2] == 5:
+                return '5v5'
+            if team_counts[1] == 6 and team_counts[2] == 6:
+                return '6v6'
+            break
+
+    return 'other'
+
+
+def append_table_section(sections, csv_rows, title, subtitle, final, n_games, per_game=False):
+    if not final or n_games <= 0:
+        return
+
+    table = build_per_game_table(final, n_games) if per_game else build_table(final)
+    if not table:
+        return
+
+    sections.append(f"\n\n{'=' * 60}")
+    sections.append(f"  {title}  ({subtitle})")
+    sections.append(f"{'=' * 60}\n")
+    sections.append(tabulate.tabulate(table, DISPLAY_HEADERS))
+
+    csv_rows.append([])
+    csv_rows.append([f"{title} ({subtitle})"])
+    csv_rows.append(DISPLAY_HEADERS)
+    csv_rows.extend(table)
+
+
+def _coerce_excel_value(value):
+    if isinstance(value, str) and value.endswith('%'):
+        try:
+            return float(value[:-1]) / 100
+        except ValueError:
+            return value
+    return value
+
+
+def _apply_number_format(cell):
+    if cell.column == 1 or cell.value is None:
+        return
+    if cell.column == 2:
+        cell.number_format = '#,##0.0'
+        return
+    if cell.column in (16, 20):
+        cell.number_format = '0%'
+    elif isinstance(cell.value, float):
+        cell.number_format = '#,##0.0'
+    else:
+        cell.number_format = '#,##0'
+
+
+def _hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgb_to_hex(rgb):
+    return ''.join(f'{max(0, min(255, int(round(channel)))):02X}' for channel in rgb)
+
+
+def _blend_colors(color_a, color_b, ratio):
+    rgb_a = _hex_to_rgb(color_a)
+    rgb_b = _hex_to_rgb(color_b)
+    return _rgb_to_hex(
+        tuple(rgb_a[i] + (rgb_b[i] - rgb_a[i]) * ratio for i in range(3))
+    )
+
+
+def _apply_value_fills(ws, start_row, end_row, col_idx, reverse=False):
+    values = []
+    for row_idx in range(start_row, end_row + 1):
+        value = ws.cell(row=row_idx, column=col_idx).value
+        if isinstance(value, (int, float)):
+            values.append((row_idx, float(value)))
+
+    if not values:
+        return
+
+    sorted_unique = sorted({value for _, value in values})
+    denom = max(len(sorted_unique) - 1, 1)
+    ranks = {value: idx / denom for idx, value in enumerate(sorted_unique)}
+
+    for row_idx, value in values:
+        ratio = ranks[value] if len(sorted_unique) > 1 else 0.5
+        if reverse:
+            ratio = 1 - ratio
+        if ratio <= 0.2:
+            fill_color = 'E6C7C3'
+        elif ratio <= 0.4:
+            fill_color = 'F1DDD8'
+        elif ratio < 0.6:
+            fill_color = 'F7F5EF'
+        elif ratio < 0.8:
+            fill_color = 'DFEBDD'
+        else:
+            fill_color = 'C8DDC4'
+        ws.cell(row=row_idx, column=col_idx).fill = PatternFill(fill_type='solid', fgColor=fill_color)
+
+
+def _section_highlight_columns(title):
+    full_cols = {4, 5, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18, 20}
+    return full_cols
+
+
+def _use_base_fill_for_data(title):
+    return True
+
+
+def write_formatted_xlsx(path, rows):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Box Score'
+
+    title_fill = PatternFill(fill_type='solid', fgColor='1F4E78')
+    header_fill = PatternFill(fill_type='solid', fgColor='D9EAF7')
+    total_fill = PatternFill(fill_type='solid', fgColor='E2F0D9')
+    emphasis_fill = PatternFill(fill_type='solid', fgColor='EEF4EA')
+    thin = Side(style='thin', color='A6A6A6')
+    current_section_start = None
+    current_section_title = ''
+    current_section_last_data_row = None
+    section_ranges = []
+
+    def finalize_section():
+        if (
+            current_section_start is not None
+            and current_section_last_data_row is not None
+            and current_section_start <= current_section_last_data_row
+        ):
+            section_ranges.append((current_section_start, current_section_last_data_row, current_section_title))
+
+    for row_idx, row in enumerate(rows, start=1):
+        for col_idx, value in enumerate(row, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=_coerce_excel_value(value))
+            if len(row) > 1 and row != DISPLAY_HEADERS and row[0] != 'Total':
+                _apply_number_format(cell)
+
+        if not row:
+            continue
+
+        if len(row) == 1:
+            finalize_section()
+            current_section_title = str(row[0])
+            current_section_start = row_idx + 2
+            current_section_last_data_row = None
+            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=len(DISPLAY_HEADERS))
+            cell = ws.cell(row=row_idx, column=1)
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = title_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.row_dimensions[row_idx].height = 22
+            continue
+
+        for cell in ws[row_idx]:
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+        if row == DISPLAY_HEADERS:
+            emphasized_cols = _section_highlight_columns(current_section_title)
+            for cell in ws[row_idx]:
+                cell.font = Font(bold=True)
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            ws.row_dimensions[row_idx].height = 34
+        elif row[0] == 'Total':
+            emphasized_cols = _section_highlight_columns(current_section_title)
+            for cell in ws[row_idx]:
+                cell.font = Font(bold=True)
+                cell.fill = total_fill
+                _apply_number_format(cell)
+            if _use_base_fill_for_data(current_section_title):
+                for col_idx in emphasized_cols:
+                    ws.cell(row=row_idx, column=col_idx).fill = emphasis_fill
+        else:
+            emphasized_cols = _section_highlight_columns(current_section_title)
+            if _use_base_fill_for_data(current_section_title):
+                for col_idx in emphasized_cols:
+                    ws.cell(row=row_idx, column=col_idx).fill = emphasis_fill
+            current_section_last_data_row = row_idx
+
+    widths = {
+        1: 14, 2: 10, 3: 8, 4: 8, 5: 8, 6: 7, 7: 10, 8: 9, 9: 8, 10: 10,
+        11: 9, 12: 6, 13: 8, 14: 8, 15: 6, 16: 7, 17: 8, 18: 7, 19: 6, 20: 7
+    }
+    for col_idx, width in widths.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    finalize_section()
+
+    for start_row, end_row, section_title in section_ranges:
+        emphasized_cols = _section_highlight_columns(section_title)
+        for col_idx in emphasized_cols:
+            if col_idx in (8, 17, 18, 20):
+                continue
+            if col_idx == 16:
+                _apply_value_fills(ws, start_row, end_row, col_idx)
+            else:
+                _apply_value_fills(ws, start_row, end_row, col_idx)
+        for col_idx in emphasized_cols:
+            if col_idx in (8, 17, 18, 20):
+                _apply_value_fills(ws, start_row, end_row, col_idx, reverse=True)
+
+    wb.save(path)
+
+
 class BoxScore:
     def __init__(self, input_dir, auto_produce=True):
         self.dir = input_dir
@@ -121,6 +359,9 @@ class BoxScore:
 
     def produce_stats(self):
         records = []
+        records_by_format = defaultdict(list)
+        games_by_format = defaultdict(int)
+        processed_games = 0
         for filename in os.listdir(self.dir):
             if not filename.endswith('.ndjson'):
                 continue
@@ -129,12 +370,15 @@ class BoxScore:
                 try:
                     data = ndjson.load(f)
                     results = self.one_game(data)
-                    for r in results:
-                        records.append(r)
+                    game_format = infer_game_format(data)
+                    records.extend(results)
+                    records_by_format[game_format].extend(results)
+                    games_by_format[game_format] += 1
+                    processed_games += 1
                 except ValueError:
                     continue
         final = self.merge_results(records)
-        self.print_box_score(final)
+        self.print_box_score(final, processed_games, records_by_format, games_by_format)
 
     def one_game(self, data):
         ids = self.initialize_game(data)
@@ -265,24 +509,80 @@ class BoxScore:
                 final[player]['team'] = r['team']
         return final
 
-    def print_box_score(self, final):
-        table = build_table(final)
+    def print_box_score(self, final, total_games, records_by_format, games_by_format):
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         OUTPUT_DIR.mkdir(exist_ok=True)
+        sections = []
+        csv_rows = []
+
+        append_table_section(
+            sections,
+            csv_rows,
+            'BOX SCORE TOTALS',
+            f"{total_games} games",
+            final,
+            total_games,
+        )
+        append_table_section(
+            sections,
+            csv_rows,
+            'BOX SCORE PER GAME',
+            f"{total_games} games",
+            final,
+            total_games,
+            per_game=True,
+        )
+        append_table_section(
+            sections,
+            csv_rows,
+            'BOX SCORE 6V6',
+            f"{games_by_format['6v6']} games",
+            self.merge_results(records_by_format['6v6']),
+            games_by_format['6v6'],
+        )
+        append_table_section(
+            sections,
+            csv_rows,
+            'BOX SCORE 6V6 PER GAME',
+            f"{games_by_format['6v6']} games",
+            self.merge_results(records_by_format['6v6']),
+            games_by_format['6v6'],
+            per_game=True,
+        )
+        append_table_section(
+            sections,
+            csv_rows,
+            'BOX SCORE 5V5',
+            f"{games_by_format['5v5']} games",
+            self.merge_results(records_by_format['5v5']),
+            games_by_format['5v5'],
+        )
+        append_table_section(
+            sections,
+            csv_rows,
+            'BOX SCORE 5V5 PER GAME',
+            f"{games_by_format['5v5']} games",
+            self.merge_results(records_by_format['5v5']),
+            games_by_format['5v5'],
+            per_game=True,
+        )
         
         # Write TXT
         path = OUTPUT_DIR / f'box_score_{timestamp}.txt'
         with open(path, 'w') as f:
-            f.write(tabulate.tabulate(table, DISPLAY_HEADERS))
+            f.write('\n'.join(sections))
         print(f"Written to {path}")
 
         # Write CSV
         csv_path = OUTPUT_DIR / f'box_score_{timestamp}.csv'
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(DISPLAY_HEADERS)
-            writer.writerows(table)
+            writer.writerows(csv_rows)
         print(f"Written to {csv_path}")
+
+        xlsx_path = OUTPUT_DIR / f'box_score_{timestamp}.xlsx'
+        write_formatted_xlsx(xlsx_path, csv_rows)
+        print(f"Written to {xlsx_path}")
 
 
 if __name__ == '__main__':

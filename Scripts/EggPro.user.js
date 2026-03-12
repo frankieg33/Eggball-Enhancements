@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro
 // @version      1.12
-// @description  Tweaks for Eggball
+// @description  Tweaks for Egg Ball
 // @author       frankieg33
 // @include      https://*.koalabeast.com/game
 // @include      https://*.koalabeast.com/game?*
@@ -121,106 +121,105 @@ aim_line_alpha=1
 
 //--------------SETTINGS--------------
 //Put a pink ring around your ball so it doesn't get lost in the chaos.
-var highlight = false;
+var highlight=false;
 
 //Lock the camera to your ball like in regular tagpro. In eggball, the camera is by default vertically locked to the field giving an out-of-ball sensation.
-var lock_ball = true;
+var lock_ball=true;
 
 //Set the value to false to expand viewport while playing. Set the value to true to expand only when spectating.
-var spec_only = false;
+var spec_only=false;
 
 //Set true/false to toggle auto-zoom level when spectating.
-var auto_zoom = true;
+var auto_zoom=true;
 
 //Set the value to true to use a pixel perfect egg. Set to false to use the vanilla egg.
-var pp_egg = true;
+var pp_egg=true;
 
 //Set the value to true to use the custom, improved map. Set to false to use the vanilla map.
-var imp_map = true;
+var imp_map=true;
 
 //Set the value to true to enable autoshooting when picking up the egg. Set to false to disable.
-var auto_shoot = true;
+var auto_shoot=true;
 
 //Set the value to true to use a custom crosshair. Set to false to use the default crosshair.
-var custom_crosshair = true;
+var custom_crosshair=true;
 
 //Set the value to true to enable an aiming line to your cursor position. Set to false to disable.
-var aim_line = true;
+var aim_line=true;
 
 //Set url of custom egg image (23x23 for pixel perfect). Only applies if pp_egg=true.
-var egg_url = "https://i.imgur.com/B1F1BI5.png";
+var egg_url="https://i.imgur.com/B1F1BI5.png";
 
 //Set url of custom egg team indicator image (29x29). Only applies if pp_egg=true.
-var egg_team_url = "https://i.imgur.com/P0l0yVA.png";
+var egg_team_url="https://i.imgur.com/P0l0yVA.png";
 
 //Set url of custom field image. Only applies if imp_map=true.
-var field_url = "https://i.imgur.com/vF0f6g0.png";
+var field_url="https://i.imgur.com/vF0f6g0.png";
 
 //Set url of custom crosshair image (designed for 32x32). Only applies if custom_crosshair=true.
-var crosshair_url = "https://i.imgur.com/Pjxxh20.png";
+var crosshair_url="https://i.imgur.com/Pjxxh20.png";
 
 //Set url of the highlight ring around your ball. Only applies if highlight=true.
-var highlight_url = "https://i.imgur.com/h23oRYI.png"
+var highlight_url="https://i.imgur.com/h23oRYI.png"
 
 //Set autoshoot key. Default is Left Shift (16). Only applies if auto_shoot=true.
 //Use this app to get the correct keycode: https://codepen.io/chriscoyier/full/mPgoYJ/ or see https://msdn.microsoft.com/en-us/library/aa243025(v=vs.60).aspx
-var auto_key = 16;
+var auto_key=16;
 
 //Change to true to enable holding mouse click down as the autoshoot trigger. No effects to usual shooting with mouse. Only applies if auto_shoot=true.
-var auto_mouse = true;
+var auto_mouse=true;
 
 //Set the color of the aiming line in hex with 0x prefix. Default is 0xFF00FF (matches the custom crosshair). Only applies if aim_line=true.
-var aim_line_color = 0xFF00FF;
+var aim_line_color=0xFF00FF;
 
 //Set the transparency of the aiming line. Ranges from 0 (transparent) to 1 (opaque). Only applies if aim_line=true.
-var aim_line_alpha = 0.15;
+var aim_line_alpha=0.15;
 
 //Prevent raptors images from scrolling across the screen. Set to true to hide them.
-var hide_raptors = false;
+var hide_raptors=false;
 
 //Set to true to pass the egg on mouse click down, without needing to release the click up. Note, setting this to true will also enable the same behavior of extend_click=true.
-var half_click = true;
+var half_click=true;
 
 //Set to true to allow aiming and shooting by clicking anywhere outside of the field area.
-var extend_click = true;
+var extend_click=true;
 
 //Set to true to use a custom texture pack. Note this will affect your texture pack in normal games of TagPro as well. Set to false to use the vanilla egg ball texture pack.
-var custom_texture = false;
+var custom_texture=false;
 
 //Set url of custom texture pack tiles image. Only applies if custom_texture=true.
-var texture_url = "https://i.imgur.com/mpdNY1g.png";
+var texture_url="https://i.imgur.com/mpdNY1g.png";
 
 //Set to true to have a passing sound play whenever anyone passes the egg.
-var pass_sound = true;
+var pass_sound=true;
 
 //Set to true to have the egg change colors to indicate raptor (green egg) and interception status (orange egg).
-var egg_timer = true;
+var egg_timer=true;
 
 //Set to true to show your team's current score differential.
-var score_difference = true;
+var score_difference=true;
 
 //Set to true to show a text alert when a raptor boat occurs.
-var boat_notice = true;
+var boat_notice=true;
 
 //Set to true to flash the ball of the player who threw the egg until they are safe from a turnover pop.
-var flash_passer = false;
+var flash_passer=false;
 //-----------END OF SETTINGS-----------
 
 
-var oldh = 0;
-var oldw = 0;
+var oldh=0;
+var oldw=0;
 var tileSize = 40;
 var tileHalf = tileSize / 2;
 var playerCameraOffset = tileHalf - 1;
 var heldEggSize = 23;
 var heldEggOffset = (tileSize - heldEggSize) / 2;
-var eggTeamSideNudge = 13;
-var eggball = false;
+var eggball=false;
 var eggHolderId = null;
-var lastHolder = null;
-var flashInterval = null;
-var flashTimeout = null;
-if (custom_texture) {
+var lastHolder=null;
+var flashInterval=null;
+var flashTimeout=null;
+if(custom_texture){
     var assetId = generateId();
     var image = new Image();
     image.crossOrigin = true;
@@ -235,8 +234,8 @@ if (custom_texture) {
     });
 }
 
-function flashPlayer() {
-    lastHolder.sprite.alpha = lastHolder.sprite.alpha == 1 ? .5 : 1;
+function flashPlayer(){
+    lastHolder.sprite.alpha=lastHolder.sprite.alpha==1 ? .5: 1;
 }
 
 function normalizeHolderId(raw) {
@@ -279,74 +278,74 @@ function getHolderIdFromEggBallData(data) {
     return null;
 }
 
-tagpro.ready(function () {
-    tagpro.socket.on('map', function (data) {
-        if (data.info.name == "eggball") {
-            eggball = true;
-            if (custom_crosshair) {
-                $("<style type='text/css'>canvas{cursor: url(" + crosshair_url + ") 16 16, crosshair !important;}</style>").appendTo("head");
+tagpro.ready(function() {
+    tagpro.socket.on('map', function(data) {
+        if (data.info.name=="eggball"){
+            eggball=true;
+            if(custom_crosshair) {
+                $("<style type='text/css'>canvas{cursor: url("+crosshair_url+") 16 16, crosshair !important;}</style>").appendTo("head");
             }
         }
     });
 
-    tagpro.socket.on("eggBall", function (data) {
+    tagpro.socket.on("eggBall", function(data) {
         gameState = data.state;
         eggHolderId = getHolderIdFromEggBallData(data);
         eggHolder = eggHolderId === null ? null : tagpro.players[eggHolderId];
-        if (auto_shoot && (autom || autokey) && eggHolderId == tagpro.playerId) {
+        if(auto_shoot && (autom ||autokey) && eggHolderId == tagpro.playerId){
             autoShoot();
         }
-        if (eggHolderId === null && gameState === "play") {
-            if (pass_sound && lastHolder !== tagpro.players[tagpro.playerId]) {
+        if (eggHolderId === null && gameState==="play"){
+            if (pass_sound && lastHolder!==tagpro.players[tagpro.playerId]){
                 tagpro.playSound("throw", 1);
             }
-            if (flash_passer && lastHolder) {
-                flashInterval = setInterval(flashPlayer, 100);
-                flashTimeout = setTimeout(function () {
-                    lastHolder.sprite.alpha = 1;
+            if (flash_passer && lastHolder){
+                flashInterval=setInterval(flashPlayer,100);
+                flashTimeout=setTimeout(function(){
+                    lastHolder.sprite.alpha=1;
                     clearInterval(flashInterval);
-                }, 3000);
+                },3000);
             }
         }
-        else {
-            if (flashInterval) {
+        else{
+            if (flashInterval){
                 clearInterval(flashInterval);
             }
-            if (lastHolder) {
-                lastHolder.sprite.alpha = 1;
+            if (lastHolder){
+                lastHolder.sprite.alpha=1;
             }
-            if (flashTimeout) {
-                clearTimeout(flashTimeout);
+            if (flashTimeout){
+                 clearTimeout(flashTimeout);
             }
-            lastHolder = eggHolder;
+            lastHolder=eggHolder;
         }
         updateTeamWithEgg();
-        eggball = true;
+        eggball=true;
     });
 
-    tagpro.socket.on('score', function (data) {
-        if (score_difference && eggball) {
+    tagpro.socket.on('score', function(data) {
+        if (score_difference && eggball){
             updateScoreDifference(data);
         }
-        if (flashInterval) {
+        if (flashInterval){
             clearInterval(flashInterval);
         }
     });
 
-    $('#switchButton').on('click', function () {
-        if (score_difference && eggball) {
-            setTimeout(function () {
-                updateScoreDifference({ r: tagpro.score.r, b: tagpro.score.b });
+    $('#switchButton').on('click', function() {
+        if (score_difference && eggball){
+            setTimeout(function() {
+                updateScoreDifference({r:tagpro.score.r, b:tagpro.score.b});
             }, 1000);
         }
     });
 
-    if (score_difference && eggball) {
-        updateScoreDifference({ r: tagpro.score.r, b: tagpro.score.b });
+    if (score_difference && eggball){
+        updateScoreDifference({r:tagpro.score.r, b:tagpro.score.b});
     }
 
-    tagpro.socket.on('boat', function (data) {
-        if (boat_notice) {
+    tagpro.socket.on('boat', function(data) {
+        if (boat_notice){
             boatScore();
         }
     });
@@ -354,36 +353,36 @@ tagpro.ready(function () {
     var stage = tagpro.renderer.stage;
     var container = tagpro.renderer.gameContainer;
     var MousePos = { x: 0, y: 0 };
-    var autom = false;
-    var autokey = false;
+    var autom=false;
+    var autokey=false;
     stage.eventMode = 'dynamic';
-    document.addEventListener('mousemove', function (e) {
+    document.addEventListener('mousemove', function(e) {
         MousePos.x = e.clientX;
         MousePos.y = e.clientY;
-    });
+  });
 
-    onmousemove = function (e) {
-        if (!tagpro.spectator && aim_line && eggball) {
+    onmousemove=function(e){
+        if(!tagpro.spectator && aim_line && eggball){
             var player = tagpro.players[tagpro.playerId];
             try {
                 player.sprites.aim.clear();
                 player.sprites.aim.lineStyle(2, aim_line_color, aim_line_alpha);
                 player.sprites.aim.moveTo(tileHalf, tileHalf);
-                if (spec_only) {
-                    player.sprites.aim.lineTo((e.clientX - window.innerWidth / 2) * 1280 / $('#viewport').width() + tileHalf, (e.clientY - window.innerHeight / 2) * 800 / $('#viewport').height() + tileHalf);
+                if (spec_only){
+                    player.sprites.aim.lineTo((e.clientX-window.innerWidth/2)*1280/$('#viewport').width()+tileHalf, (e.clientY-window.innerHeight/2)*800/$('#viewport').height()+tileHalf);
                 }
                 else {
-                    player.sprites.aim.lineTo((e.clientX - window.innerWidth / 2) + tileHalf, (e.clientY - window.innerHeight / 2) + tileHalf);
+                    player.sprites.aim.lineTo((e.clientX-window.innerWidth/2)+tileHalf, (e.clientY-window.innerHeight/2)+tileHalf);
                 }
             }
-            catch (err) {
+            catch (err){
                 player.sprites.aim = new PIXI.Graphics();
                 player.sprites.ball.addChild(player.sprites.aim);
             }
         }
     };
 
-    if (lock_ball) {
+    if (lock_ball){
         tagpro.renderer.updateCameraPosition = function (player) {
             if (player.sprite.x !== -1000 && player.sprite.y !== -1000) {
                 tagpro.renderer.centerContainerToPoint(player.sprite.x + playerCameraOffset, player.sprite.y + playerCameraOffset);
@@ -391,37 +390,37 @@ tagpro.ready(function () {
         };
     }
 
-    document.onkeydown = function (e) {
-        if (e.keyCode === auto_key) {
-            autokey = true;
+    document.onkeydown = function(e){
+        if(e.keyCode===auto_key){
+            autokey=true;
         }
     };
-    document.onkeyup = function (e) {
-        if (e.keyCode === auto_key) {
-            autokey = false;
+    document.onkeyup = function(e){
+        if(e.keyCode===auto_key){
+            autokey=false;
         }
     };
 
-    document.onmousedown = function (e) {
-        if (half_click && e.button == 0) {
+    document.onmousedown = function(e){
+        if(half_click && e.button==0){
             var clickPos = {
                 x: (MousePos.x * (1 / container.scale.x)) - (container.position.x * (1 / container.scale.x)),
                 y: (MousePos.y * (1 / container.scale.y)) - (container.position.y * (1 / container.scale.y))
             };
             tagpro.socket.emit("click", clickPos);
         }
-        if (auto_mouse && e.button == 0) {
-            autom = true;
+        if(auto_mouse && e.button==0){
+            autom=true;
         }
     };
-    document.onmouseup = function (e) {
-        if (auto_mouse && e.button == 0) {
-            autom = false;
+    document.onmouseup = function(e){
+        if(auto_mouse && e.button==0){
+            autom=false;
         }
     };
 
-    document.onclick = function (e) {
-        if (extend_click && e.button == 0) {
+    document.onclick=function(e){
+        if(extend_click && e.button==0){
             var clickPos = {
                 x: (MousePos.x * (1 / container.scale.x)) - (container.position.x * (1 / container.scale.x)),
                 y: (MousePos.y * (1 / container.scale.y)) - (container.position.y * (1 / container.scale.y))
@@ -538,89 +537,55 @@ tagpro.ready(function () {
         setNativeEggAlpha(player, 1);
     }
 
-    if (imp_map) {
-        tagpro.renderer.afterDrawBackground = function () {
-            if (eggball) {
+    if (imp_map){
+        tagpro.renderer.afterDrawBackground = function() {
+            if(eggball){
                 const fieldSprite = PIXI.Sprite.from(field_url);
                 fieldSprite.x = tileSize;
                 fieldSprite.y = tileSize;
-                tagpro.renderer.layers.foreground.addChildAt(fieldSprite, 0);
-            }
+                tagpro.renderer.layers.foreground.addChildAt(fieldSprite, 0);}
         };
     }
 
-    try {
+    try{
         tagpro.renderer.updatePlayerPowerUps = function (player, context, drawPos) {
             realUpdatePlayerPowerUps(player, context, drawPos);
             syncHeldEggForPlayer(player);
-        };
-    }
-    catch (err) {
+        };}
+    catch(err){
         //Not egg mode
     }
     var eggTeam = PIXI.Sprite.from("events/easter-2016/images/egg.png");
-    if (pp_egg) {
-        eggTeam = PIXI.Sprite.from(egg_team_url);
-    }
+    if (pp_egg){
+        eggTeam = PIXI.Sprite.from(egg_team_url);}
     eggTeam.width = 29;
     eggTeam.height = 29;
     eggTeam.anchor.x = 0.5;
     eggTeam.anchor.y = 0.5;
     eggTeam.alpha = 0.75;
     eggTeam.visible = false;
-    try {
-        tagpro.renderer.layers.ui.addChildAt(eggTeam, 1);
-        tagpro.renderer.layers.ui.removeChildAt(0);
-    }
-    catch (err) {
+    try{
+        tagpro.renderer.layers.ui.addChildAt(eggTeam,1);
+        tagpro.renderer.layers.ui.removeChildAt(0);}
+    catch(err){
         //Not egg mode
     }
 
-    var rate = true;
-    function autoShoot() {
+    var rate=true;
+    function autoShoot(){
         if (!rate) return;
-        rate = false;
+        rate=false;
         var clickPos = {
             x: (MousePos.x * (1 / container.scale.x)) - (container.position.x * (1 / container.scale.x)),
             y: (MousePos.y * (1 / container.scale.y)) - (container.position.y * (1 / container.scale.y))
         };
         tagpro.socket.emit("click", clickPos);
-        setTimeout(function () { rate = true; }, 15);//needed to avoid kick for too many server requests
+        setTimeout(function(){rate = true;}, 15);//needed to avoid kick for too many server requests
     }
 
     function updateTeamWithEgg() {
         if (!tagpro.ui.sprites["yellowFlagTakenByRed"]) {
             return setTimeout(updateTeamWithEgg.bind(this), 50);
-        }
-        function positionEggTeamFrom(refSprite, team) {
-            if (!refSprite || !tagpro.renderer || !tagpro.renderer.layers || !tagpro.renderer.layers.ui) {
-                return;
-            }
-            try {
-                // Use global bounds center so this stays correct even if the source sprite lives in a different container.
-                var bounds = refSprite.getBounds();
-                var globalCenter = new PIXI.Point(bounds.x + (bounds.width / 2), bounds.y + (bounds.height / 2));
-                var localCenter = tagpro.renderer.layers.ui.toLocal(globalCenter);
-                eggTeam.x = localCenter.x;
-                eggTeam.y = localCenter.y;
-                if (team === 1) {
-                    eggTeam.x += eggTeamSideNudge;
-                }
-                else if (team === 2) {
-                    eggTeam.x -= eggTeamSideNudge;
-                }
-            }
-            catch (err) {
-                // Fallback to legacy behavior if bounds transforms are unavailable.
-                eggTeam.x = refSprite.x;
-                eggTeam.y = refSprite.y;
-                if (team === 1) {
-                    eggTeam.x += eggTeamSideNudge;
-                }
-                else if (team === 2) {
-                    eggTeam.x -= eggTeamSideNudge;
-                }
-            }
         }
         if (!eggHolder) {
             eggTeam.visible = false;
@@ -629,11 +594,13 @@ tagpro.ready(function () {
             eggTeam.visible = true;
             if (eggHolder.team === 1) {
                 const pos = tagpro.ui.sprites["yellowFlagTakenByRed"];
-                positionEggTeamFrom(pos, 1);
+                eggTeam.x = pos.x;
+                eggTeam.y = pos.y;
             }
             else {
                 const pos = tagpro.ui.sprites["yellowFlagTakenByBlue"];
-                positionEggTeamFrom(pos, 2);
+                eggTeam.x = pos.x;
+                eggTeam.y = pos.y;
             }
         }
     }
@@ -641,7 +608,7 @@ tagpro.ready(function () {
     var oldUpdateMarsball = tagpro.renderer.updateMarsBall.bind(tagpro.updateMarsBall);
     var oldDrawMarsball = tagpro.renderer.drawMarsball.bind(tagpro.renderer);
 
-    tagpro.renderer.updateMarsBall = function (object, position) {
+    tagpro.renderer.updateMarsBall = function(object, position) {
         if (object.type == "egg") {
             position.x = position.x + tileHalf;
             position.y = position.y + tileHalf;
@@ -660,12 +627,10 @@ tagpro.ready(function () {
         if (tagpro.spectator) {
             object.draw = true;
         }
-        if (pp_egg) {
-            object.sprite = PIXI.Sprite.from(egg_url);
-        }
+        if (pp_egg){
+            object.sprite = PIXI.Sprite.from(egg_url);}
         else {
-            object.sprite = PIXI.Sprite.from("events/easter-2016/images/egg.png");
-        }
+            object.sprite = PIXI.Sprite.from("events/easter-2016/images/egg.png");}
         object.sprite.position.x = position.x;
         object.sprite.position.y = position.y;
         object.sprite.width = heldEggSize;
@@ -689,7 +654,7 @@ tagpro.ready(function () {
 
     //Thanks to /u/nabbynz for this code block to hide the raptors!
     if (hide_raptors) {
-        for (let i = 0; i < tagpro.renderer.layers.ui.children.length; i++) {
+        for (let i=0; i<tagpro.renderer.layers.ui.children.length; i++) {
             if (tagpro.renderer.layers.ui.children[i].texture.baseTexture.imageUrl.includes('raptor')) { //e.g.: events/easter-2017/images/raptor13.png
                 console.log('Hiding Raptor:', tagpro.renderer.layers.ui.children[i].texture.baseTexture.imageUrl);
                 tagpro.renderer.layers.ui.children[i].renderable = false;
@@ -700,7 +665,7 @@ tagpro.ready(function () {
     var defaultUpdatePlayerSpritePosition = tagpro.renderer.updatePlayerSpritePosition;
     tagpro.renderer.updatePlayerSpritePosition = function (player) {
         // Create highlight
-        if (eggball && !tagpro.spectator && highlight && player == tagpro.players[tagpro.playerId] && !player.sprites.highlight) {
+        if (eggball && !tagpro.spectator && highlight && player==tagpro.players[tagpro.playerId] && !player.sprites.highlight) {
             player.sprites.highlight = PIXI.Sprite.from(highlight_url);
             player.sprites.highlight.x = -5;
             player.sprites.highlight.y = -5;
@@ -714,11 +679,12 @@ tagpro.ready(function () {
         if (!tagpro.playerId) {
             return setTimeout(waitForId, 100);
         }
-        if ((tagpro.spectator || !spec_only) && eggball) {
+        if((tagpro.spectator || !spec_only) && eggball)
+        {
             //Resize viewport
             resize();
-            if (tagpro.spectator) {
-                tagpro.viewport.followPlayer = false;
+            if(tagpro.spectator){
+                tagpro.viewport.followPlayer=false;
             }
             //Check for resizing and update FOV and zoom accordingly
             setInterval(updateFOV, 500);
@@ -728,53 +694,53 @@ tagpro.ready(function () {
 });
 
 //Thanks to /u/nabbynz for this code block adapted from his script TagPro Map Name Below Timer (& More!)
-var updateScoreDifference = function (data) {
-    let diffText = '=';
-    let color = '#ffff40';
+var updateScoreDifference = function(data) {
+     let diffText = '=';
+     let color = '#ffff40';
 
-    if (data.r - data.b > 0) {
-        if (tagpro.playerId && tagpro.players[tagpro.playerId].team === 1) {
-            diffText = '+' + Math.abs(data.r - data.b);
-            color = '#00CC00';
-        } else {
-            diffText = '-' + Math.abs(data.r - data.b);
-            color = '#CC0000';
-        }
-    } else if (data.r - data.b < 0) {
-        if (tagpro.playerId && tagpro.players[tagpro.playerId].team === 1) {
-            diffText = '-' + Math.abs(data.r - data.b);
-            color = '#CC0000';
-        } else {
-            diffText = '+' + Math.abs(data.r - data.b);
-            color = '#00CC00';
-        }
-    }
+     if (data.r - data.b > 0) {
+         if (tagpro.playerId && tagpro.players[tagpro.playerId].team === 1) {
+             diffText = '+' + Math.abs(data.r - data.b);
+             color = '#00CC00';
+         } else {
+             diffText = '-' + Math.abs(data.r - data.b);
+             color = '#CC0000';
+         }
+     } else if (data.r - data.b < 0) {
+         if (tagpro.playerId && tagpro.players[tagpro.playerId].team === 1) {
+             diffText = '-' + Math.abs(data.r - data.b);
+             color = '#CC0000';
+         } else {
+             diffText = '+' + Math.abs(data.r - data.b);
+             color = '#00CC00';
+         }
+     }
 
-    let scoreDiff = new PIXI.Text(diffText, { fontFamily: 'Verdana', fontSize: '32px', fontWeight: 'bold', fill: color, dropShadow: true, dropShadowAlpha: 0.7, dropShadowDistance: 1 });
+     let scoreDiff = new PIXI.Text(diffText, {fontFamily:'Verdana', fontSize:'32px', fontWeight:'bold', fill:color, dropShadow:true, dropShadowAlpha:0.7, dropShadowDistance:1});
 
-    scoreDiff.anchor.x = 0.5;
-    scoreDiff.x = ($("#viewport").width() / 2);
-    scoreDiff.y = $("#viewport").height() - 86;
-    scoreDiff.alpha = 0.7;
+     scoreDiff.anchor.x = 0.5;
+     scoreDiff.x = ($("#viewport").width() / 2);
+     scoreDiff.y = $("#viewport").height() - 100;
+     scoreDiff.alpha = 0.7;
 
-    if (!tagpro.ui.sprites.scoreDiff) {
-        tagpro.ui.sprites.scoreDiff = new PIXI.Container();
-    }
+     if (!tagpro.ui.sprites.scoreDiff) {
+         tagpro.ui.sprites.scoreDiff = new PIXI.Container();
+     }
 
-    tagpro.renderer.layers.ui.addChild(tagpro.ui.sprites.scoreDiff);
-    tagpro.ui.sprites.scoreDiff.removeChildren();
-    tagpro.ui.sprites.scoreDiff.addChild(scoreDiff);
-};
+     tagpro.renderer.layers.ui.addChild(tagpro.ui.sprites.scoreDiff);
+     tagpro.ui.sprites.scoreDiff.removeChildren();
+     tagpro.ui.sprites.scoreDiff.addChild(scoreDiff);
+ };
 
-var boatScore = function () {
+var boatScore = function() {
     let boatText = 'Raptor Boat +2!';
     let color = '#00CC00';
 
-    let boat = new PIXI.Text(boatText, { fontFamily: 'Verdana', fontSize: '32px', fontWeight: 'bold', fill: color, dropShadow: true, dropShadowAlpha: 0.7, dropShadowDistance: 1 });
+    let boat = new PIXI.Text(boatText, {fontFamily:'Verdana', fontSize:'32px', fontWeight:'bold', fill:color, dropShadow:true, dropShadowAlpha:0.7, dropShadowDistance:1});
 
     boat.anchor.x = 0.5;
     boat.x = ($("#viewport").width() / 2);
-    boat.y = $("#viewport").height() - 120;
+    boat.y = $("#viewport").height() - 134;
     boat.alpha = 0.7;
 
     if (!tagpro.ui.sprites.boat) {
@@ -789,13 +755,13 @@ var boatScore = function () {
     }, 5000);
 };
 
-function resize() {
+function resize(){
     tagpro.renderer.canvas_width = window.innerWidth;
     tagpro.renderer.canvas_height = window.innerHeight;
     tagpro.renderer.resizeView();
     tagpro.renderer.centerView();
-    if (score_difference) {
-        updateScoreDifference({ r: tagpro.score.r, b: tagpro.score.b });
+    if (score_difference){
+        updateScoreDifference({r:tagpro.score.r, b:tagpro.score.b});
     }
 }
 
@@ -803,17 +769,18 @@ function updateFOV() {
     var h = $('#viewport').height();
     var w = $('#viewport').width();
     //Resize viewport
-    if (h != window.innerHeight || w != window.innerWidth) {
+    if (h!=window.innerHeight||w!=window.innerWidth){
         resize();
         h = $('#viewport').height();
         w = $('#viewport').width();
     }
     //Auto-zoom to fill viewport
-    if (tagpro.spectator && auto_zoom && (oldh != h || oldw != w)) {
-        var yzoom = tagpro.map[0].length * tileSize / h;
-        var xzoom = tagpro.map.length * tileSize / w;
-        tagpro.zoom = Math.max(xzoom, yzoom, 1);
+    if(tagpro.spectator && auto_zoom && (oldh!=h ||oldw!=w))
+    {
+        var yzoom=tagpro.map[0].length*tileSize/h;
+        var xzoom=tagpro.map.length*tileSize/w;
+        tagpro.zoom=Math.max(xzoom,yzoom,1);
     }
-    oldh = h;
-    oldw = w;
+    oldh=h;
+    oldw=w;
 }
