@@ -24,6 +24,8 @@ function makeHarness(savedSettings = {}, legacySettings = null) {
             this.style = {};
             this.classList = { add() {}, remove() {}, toggle() {} };
             this.hidden = false;
+            this.offsetWidth = 240;
+            this.offsetHeight = 200;
             this.checked = false;
             this.value = '';
             this.textContent = '';
@@ -37,6 +39,13 @@ function makeHarness(savedSettings = {}, legacySettings = null) {
         appendChild(child) { this.append(child); }
         addEventListener(type, handler) { this.listeners.set(type, handler); }
         fire(type, event = {}) { return this.listeners.get(type)?.(event); }
+        getBoundingClientRect() {
+            const left = Number.parseFloat(this.style.left) || 0;
+            const top = Number.parseFloat(this.style.top) || 0;
+            return { left, top, width: this.offsetWidth, height: this.offsetHeight,
+                right: left + this.offsetWidth, bottom: top + this.offsetHeight };
+        }
+        setPointerCapture() {}
         contains(other) { return other === this; }
     }
 
@@ -157,7 +166,7 @@ function makeHarness(savedSettings = {}, legacySettings = null) {
     const controls = panel.children.find(element => element.id === 'eggpro-controls');
     const control = text => controls.children.find(element => element.tagName === 'LABEL' && element.textContent.includes(text))
         .children.find(child => child.tagName === 'INPUT' || child.tagName === 'SELECT');
-    return { document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control, intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture };
+    return { document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control, intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture, getStoredSettings: () => savedSettings };
 }
 
 test('uses PlayEggball whole-field zoom and restores the prior camera state', () => {
@@ -207,12 +216,15 @@ test('replaces a color-variant egg texture immediately, before the periodic spri
 test('accepts 1.25 zoom and uses None as the default auto-click key', () => {
     const h = makeHarness({ zoomFactor: 0.75 });
     const zoom = h.control('Field zoom factor');
-    assert.equal(zoom.max, '1.25');
+    assert.equal(zoom.max, '2');
     zoom.value = '1.25';
     h.game.view.camera.wholeFieldZoom = () => 1.04;
     zoom.fire('change');
     assert.equal(h.game.zoomLevel, 1.04 / 1.25);
     assert.ok(h.game.zoomLevel < 1);
+    zoom.value = '2';
+    zoom.fire('change');
+    assert.equal(h.game.zoomLevel, 1.04 / 2);
 
     const autoKey = h.control('Auto-click key');
     assert.equal(autoKey.value, 'none');
@@ -292,6 +304,7 @@ test('fullscreen control requests fullscreen from the browser document', async (
 
 test('collapses and expands the overlay controls', () => {
     const h = makeHarness();
+    assert.match(h.document.head.children[0].textContent, /#eggpro-controls\[hidden\]\{display:none!important\}/);
     const toggle = h.panel.children[0].children[1];
     toggle.fire('click');
     assert.equal(h.controls.hidden, true);
@@ -299,6 +312,28 @@ test('collapses and expands the overlay controls', () => {
     toggle.fire('click');
     assert.equal(h.controls.hidden, false);
     assert.equal(toggle.textContent, 'Collapse');
+});
+
+test('drags the overlay and saves its position, clamped to the viewport', () => {
+    const h = makeHarness();
+    const header = h.panel.children[0];
+    header.fire('pointerdown', {
+        button: 0, pointerId: 7, clientX: 20, clientY: 60, target: header, preventDefault() {},
+    });
+    h.document.documentEvents.get('pointermove')({ pointerId: 7, clientX: 100, clientY: 140 });
+    assert.equal(h.panel.style.left, '92px');
+    assert.equal(h.panel.style.top, '130px');
+    h.document.documentEvents.get('pointerup')({ pointerId: 7 });
+    assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 92, top: 130 });
+
+    header.fire('pointerdown', {
+        button: 0, pointerId: 8, clientX: 100, clientY: 140, target: header, preventDefault() {},
+    });
+    h.document.documentEvents.get('pointermove')({ pointerId: 8, clientX: 5000, clientY: 5000 });
+    assert.equal(h.panel.style.left, '960px');
+    assert.equal(h.panel.style.top, '700px');
+    h.document.documentEvents.get('pointerup')({ pointerId: 8 });
+    assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 960, top: 700 });
 });
 
 test('userscript matches ranked play and game routes', () => {

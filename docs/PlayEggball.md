@@ -7,16 +7,16 @@ Standalone Tampermonkey userscript for `https://playeggball.com/play` and `https
 1. Install Tampermonkey in Chrome or another supported browser.
 2. Create a userscript and paste in `Scripts/EggPro.playeggball.user.js`.
 3. Save it, then reload a PlayEggball game page.
-4. Use the EggPro panel at the top-left, 50 px below the top edge. Use **Collapse** to reduce it to its header.
+4. Use the EggPro panel at the top-left, 50 px below the top edge. Drag its header to move it, and use **Collapse** to reduce it to the header.
 
 ## Features
 
 - **Pixel-perfect egg:** Replaces Eggball's live `ebEggSprite()` output with the embedded 23 × 23 image. It also intercepts changes to cached egg textures, including color variants, before the next render. PIXI uses nearest-neighbor sampling, and existing held and loose egg sprites are updated too.
-- **Camera zoom:** Uses the game's `eggball.view.camera.wholeFieldZoom()` calculation and camera overview state. The zoom factor defaults to 1.25 and accepts values from 0.5 to 1.25. Values below 1 show more than the whole-field framing; values above 1 zoom in closer. It follows the game's existing camera-follow preference.
+- **Camera zoom:** Uses the game's `eggball.view.camera.wholeFieldZoom()` calculation and camera overview state. The zoom factor defaults to 1.25 and accepts values from 0.5 to 2. Values below 1 show more than the whole-field framing; values above 1 zoom in closer. It follows the game's existing camera-follow preference.
 - **Fullscreen:** The button requests browser fullscreen. PlayEggball resizes its PIXI renderer on window resize, so the game uses the added viewport directly.
 - **Auto-click:** Enable it and hold the selected key or the left mouse button over the game. The key selector defaults to **None**, which means mouse-only and does not trigger on Shift. It sends the pointer events used by PlayEggball's PIXI renderer. The default interval is 125 ms.
 
-The controls are opt-in except the egg replacement and zoom, which start enabled. Upgrading from beta.3 keeps the other saved options and moves the zoom default to 1.25. Settings are stored in this site's local storage.
+The controls are opt-in except the egg replacement and zoom, which start enabled. Upgrading from beta.3 keeps the other saved options and moves the zoom default to 1.25. The overlay position is also saved in this site's local storage.
 
 ## Verification
 

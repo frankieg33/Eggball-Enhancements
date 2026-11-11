@@ -15,7 +15,10 @@
 
     const STORAGE_KEY = 'eggpro.playeggball.settings.v2';
     const LEGACY_STORAGE_KEY = 'eggpro.playeggball.settings.v1';
-    const DEFAULTS = { pixelPerfect: true, zoomOut: true, zoomFactor: 1.25, autoClick: false, autoClickKey: 'none', clickIntervalMs: 125 };
+    const DEFAULTS = {
+        pixelPerfect: true, zoomOut: true, zoomFactor: 1.25, autoClick: false,
+        autoClickKey: 'none', clickIntervalMs: 125, overlayPosition: { left: 12, top: 50 },
+    };
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
     const settings = loadSettings();
     const changedSprites = new Map();
@@ -37,6 +40,7 @@
     let mouseHeld = false;
     let clickTimer = null;
     let syncTimer = null;
+    let dragState = null;
     let zoomStatus = 'waiting for Eggball camera';
 
     function loadSettings() {
@@ -48,13 +52,16 @@
                 pixelPerfect: typeof saved.pixelPerfect === 'boolean' ? saved.pixelPerfect : DEFAULTS.pixelPerfect,
                 zoomOut: typeof saved.zoomOut === 'boolean' ? saved.zoomOut : DEFAULTS.zoomOut,
                 zoomFactor: !current && legacy ? DEFAULTS.zoomFactor
-                    : Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 1.25
+                    : Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 2
                     ? saved.zoomFactor : DEFAULTS.zoomFactor,
                 autoClick: typeof saved.autoClick === 'boolean' ? saved.autoClick : DEFAULTS.autoClick,
                 autoClickKey: ['none', 'Shift', 'Space', 'Control', 'Alt'].includes(saved.autoClickKey)
                     ? saved.autoClickKey : DEFAULTS.autoClickKey,
                 clickIntervalMs: Number.isInteger(saved.clickIntervalMs) && saved.clickIntervalMs >= 80 && saved.clickIntervalMs <= 1000
                     ? saved.clickIntervalMs : DEFAULTS.clickIntervalMs,
+                overlayPosition: saved.overlayPosition && Number.isFinite(saved.overlayPosition.left) && Number.isFinite(saved.overlayPosition.top)
+                    ? { left: Math.max(0, saved.overlayPosition.left), top: Math.max(0, saved.overlayPosition.top) }
+                    : { ...DEFAULTS.overlayPosition },
             };
             if (!current && legacy) localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
             return loaded;
@@ -286,6 +293,25 @@
             (!settings.pixelPerfect ? 'off' : count ? 'replaced (' + count + ')' : 'waiting for egg sprite');
     }
 
+    function applyOverlayPosition(left, top) {
+        if (!panel) return;
+        const maxLeft = Math.max(0, window.innerWidth - panel.offsetWidth);
+        const maxTop = Math.max(0, window.innerHeight - panel.offsetHeight);
+        settings.overlayPosition = {
+            left: Math.max(0, Math.min(left, maxLeft)),
+            top: Math.max(0, Math.min(top, maxTop)),
+        };
+        panel.style.left = settings.overlayPosition.left + 'px';
+        panel.style.top = settings.overlayPosition.top + 'px';
+    }
+
+    function saveOverlayPosition() {
+        if (!panel) return;
+        const rect = panel.getBoundingClientRect();
+        applyOverlayPosition(rect.left, rect.top);
+        saveSettings();
+    }
+
     function setSetting(key, value) {
         settings[key] = value;
         saveSettings();
@@ -315,12 +341,12 @@
         if (panel || !document.body || !document.head) return;
         const style = document.createElement('style');
         style.textContent = `
-          #eggpro-panel[hidden]{display:none!important}
+          #eggpro-panel[hidden],#eggpro-controls[hidden]{display:none!important}
           #eggpro-panel{position:fixed;top:50px;left:12px;right:auto;z-index:2147483647;display:flex;
             flex-direction:column;gap:7px;min-width:230px;padding:12px;border:1px solid #777;
             border-radius:9px;background:rgba(18,20,29,.94);color:#fff;font:12px/1.35 system-ui,sans-serif;
             box-shadow:0 6px 24px #0007}
-          #eggpro-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+          #eggpro-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:move;touch-action:none}
           #eggpro-controls{display:flex;flex-direction:column;gap:7px}
           #eggpro-panel label{display:block;cursor:pointer}
           #eggpro-panel input[type=number]{width:65px}
@@ -334,11 +360,11 @@
         const zoomLabel = document.createElement('label');
         zoomLabel.append(document.createTextNode('Field zoom factor '));
         const zoomInput = document.createElement('input');
-        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '1.25'; zoomInput.step = '0.05';
+        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '2'; zoomInput.step = '0.05';
         zoomInput.value = String(settings.zoomFactor);
         zoomInput.addEventListener('change', () => {
             const value = Number(zoomInput.value);
-            if (Number.isFinite(value) && value >= 0.5 && value <= 1.25) {
+            if (Number.isFinite(value) && value >= 0.5 && value <= 2) {
                 settings.zoomFactor = value;
                 saveSettings(); syncZoom(); updateStatus();
             } else zoomInput.value = String(settings.zoomFactor);
@@ -397,6 +423,7 @@
         collapseButton.addEventListener('click', () => {
             controls.hidden = !controls.hidden;
             collapseButton.textContent = controls.hidden ? 'Expand' : 'Collapse';
+            applyOverlayPosition(settings.overlayPosition.left, settings.overlayPosition.top);
         });
         header.append(title, collapseButton);
 
@@ -409,14 +436,32 @@
             intervalLabel,
             status);
         panel.append(header, controls);
+        applyOverlayPosition(settings.overlayPosition.left, settings.overlayPosition.top);
         panel.addEventListener('pointerdown', event => event.stopPropagation());
         panel.addEventListener('mousedown', event => event.stopPropagation());
+        header.addEventListener('pointerdown', event => {
+            if (event.button !== 0 || event.target === collapseButton) return;
+            const rect = panel.getBoundingClientRect();
+            dragState = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+            if (header.setPointerCapture && event.pointerId !== undefined) header.setPointerCapture(event.pointerId);
+            event.preventDefault();
+        });
         document.body.append(panel);
 
         document.addEventListener('pointermove', event => {
+            if (dragState && (event.pointerId === undefined || event.pointerId === dragState.pointerId)) {
+                applyOverlayPosition(event.clientX - dragState.offsetX, event.clientY - dragState.offsetY);
+            }
             pointer = { x: event.clientX, y: event.clientY };
             if (gateKeyHeld || mouseHeld) syncClicking();
         }, { passive: true, capture: true });
+        const finishDrag = event => {
+            if (!dragState || (event.pointerId !== undefined && event.pointerId !== dragState.pointerId)) return;
+            dragState = null;
+            saveOverlayPosition();
+        };
+        document.addEventListener('pointerup', finishDrag, true);
+        document.addEventListener('pointercancel', finishDrag, true);
         document.addEventListener('keydown', event => {
             if (isAutoClickKey(event) && !event.repeat && !isTyping()) {
                 gateKeyHeld = true; syncClicking();
@@ -442,7 +487,10 @@
             if (fullscreenButton) fullscreenButton.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen';
             setTimeout(syncZoom, 100);
         });
-        window.addEventListener('resize', () => setTimeout(syncZoom, 100));
+        window.addEventListener('resize', () => {
+            applyOverlayPosition(settings.overlayPosition.left, settings.overlayPosition.top);
+            setTimeout(syncZoom, 100);
+        });
         window.addEventListener('pagehide', () => {
             stopClicking(); restoreGameZoom();
             clearInterval(syncTimer);
