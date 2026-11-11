@@ -438,7 +438,7 @@ test('fullscreen control requests fullscreen from the browser document', async (
 test('collapses controls without changing the panel width rule', () => {
     const h = makeHarness();
     const css = h.document.head.children[0].textContent;
-    assert.match(css, /box-sizing:border-box;width:130px/);
+    assert.match(css, /box-sizing:border-box;width:230px/);
     assert.match(css, /#eggpro-controls\[hidden\]\{display:none!important\}/);
     assert.doesNotMatch(css, /#eggpro-panel[^}]*width:(?:8\d|9\d)px/);
     const toggle = h.panel.children[0].children[1];
@@ -456,7 +456,7 @@ test('drags the overlay and saves its position, clamped to the viewport', () => 
     assert.equal(h.getDetachedWidthReads(), 0);
     assert.equal(h.panel.style.left, '1058px');
     assert.equal(h.panel.style.top, '50px');
-    assert.match(h.document.head.children[0].textContent, /width:130px/);
+    assert.match(h.document.head.children[0].textContent, /width:230px/);
     const initial = h.panel.getBoundingClientRect();
     header.fire('pointerdown', {
         button: 0, pointerId: 7, clientX: initial.left + 8, clientY: initial.top + 10, target: header, preventDefault() {},

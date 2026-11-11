@@ -417,7 +417,7 @@
         style.textContent = `
           #eggpro-panel[hidden],#eggpro-controls[hidden]{display:none!important}
           #eggpro-panel{position:fixed;top:50px;left:12px;right:auto;z-index:2147483647;display:flex;
-            box-sizing:border-box;width:130px;max-width:calc(100vw - 24px);flex-direction:column;gap:7px;
+            box-sizing:border-box;width:230px;max-width:calc(100vw - 24px);flex-direction:column;gap:7px;
             padding:10px;border:1px solid #777;
             border-radius:9px;background:rgba(18,20,29,.94);color:#fff;font:12px/1.35 system-ui,sans-serif;
             box-shadow:0 6px 24px #0007}
