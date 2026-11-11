@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.5
+// @version      2.0.0-beta.6
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
 // @match        https://playeggball.com/play*
@@ -13,11 +13,11 @@
 (() => {
     'use strict';
 
-    const STORAGE_KEY = 'eggpro.playeggball.settings.v3';
-    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
+    const STORAGE_KEY = 'eggpro.playeggball.settings.v4';
+    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v3', 'eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
     const DEFAULTS = {
         pixelPerfect: true, zoomOut: true, zoomFactor: 2, autoClick: false,
-        autoClickKey: 'none', clickIntervalMs: 125, overlayPosition: { left: 12, top: 50 },
+        autoClickKey: 'none', clickIntervalMs: 125, overlayPosition: { right: 12, top: 50 },
     };
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
     const settings = loadSettings();
@@ -61,8 +61,13 @@
                     ? saved.autoClickKey : DEFAULTS.autoClickKey,
                 clickIntervalMs: Number.isInteger(saved.clickIntervalMs) && saved.clickIntervalMs >= 80 && saved.clickIntervalMs <= 1000
                     ? saved.clickIntervalMs : DEFAULTS.clickIntervalMs,
-                overlayPosition: saved.overlayPosition && Number.isFinite(saved.overlayPosition.left) && Number.isFinite(saved.overlayPosition.top)
-                    ? { left: Math.max(0, saved.overlayPosition.left), top: Math.max(0, saved.overlayPosition.top) }
+                overlayPosition: saved.overlayPosition && saved.overlayPosition.left === 12 && saved.overlayPosition.top === 50
+                    ? { ...DEFAULTS.overlayPosition }
+                    : saved.overlayPosition && Number.isFinite(saved.overlayPosition.top) &&
+                    (Number.isFinite(saved.overlayPosition.left) || Number.isFinite(saved.overlayPosition.right))
+                    ? saved.overlayPosition.left !== undefined
+                        ? { left: Math.max(0, saved.overlayPosition.left), top: Math.max(0, saved.overlayPosition.top) }
+                        : { right: Math.max(0, saved.overlayPosition.right), top: Math.max(0, saved.overlayPosition.top) }
                     : { ...DEFAULTS.overlayPosition },
             };
             if (!current && legacy) localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
@@ -314,15 +319,20 @@
             (!settings.pixelPerfect ? 'off' : count ? 'replaced (' + count + ')' : 'waiting for egg sprite');
     }
 
-    function applyOverlayPosition(left, top) {
+    function applyOverlayPosition(positionOrLeft, top) {
         if (!panel) return;
         const maxLeft = Math.max(0, window.innerWidth - panel.offsetWidth);
         const maxTop = Math.max(0, window.innerHeight - panel.offsetHeight);
-        settings.overlayPosition = {
-            left: Math.max(0, Math.min(left, maxLeft)),
-            top: Math.max(0, Math.min(top, maxTop)),
-        };
-        panel.style.left = settings.overlayPosition.left + 'px';
+        const rightAnchored = typeof positionOrLeft === 'object' && Number.isFinite(positionOrLeft.right);
+        const left = rightAnchored ? maxLeft - positionOrLeft.right
+            : typeof positionOrLeft === 'object' ? positionOrLeft.left : positionOrLeft;
+        const clampedLeft = Math.max(0, Math.min(left, maxLeft));
+        const requestedTop = typeof positionOrLeft === 'object' ? positionOrLeft.top : top;
+        const clampedTop = Math.max(0, Math.min(requestedTop, maxTop));
+        settings.overlayPosition = rightAnchored
+            ? { right: maxLeft - clampedLeft, top: clampedTop }
+            : { left: clampedLeft, top: clampedTop };
+        panel.style.left = clampedLeft + 'px';
         panel.style.top = settings.overlayPosition.top + 'px';
     }
 
@@ -444,7 +454,7 @@
         collapseButton.addEventListener('click', () => {
             controls.hidden = !controls.hidden;
             collapseButton.textContent = controls.hidden ? 'Expand' : 'Collapse';
-            applyOverlayPosition(settings.overlayPosition.left, settings.overlayPosition.top);
+            applyOverlayPosition(settings.overlayPosition, settings.overlayPosition.top);
         });
         header.append(title, collapseButton);
 
@@ -457,7 +467,7 @@
             intervalLabel,
             status);
         panel.append(header, controls);
-        applyOverlayPosition(settings.overlayPosition.left, settings.overlayPosition.top);
+        applyOverlayPosition(settings.overlayPosition, settings.overlayPosition.top);
         panel.addEventListener('pointerdown', event => event.stopPropagation());
         panel.addEventListener('mousedown', event => event.stopPropagation());
         header.addEventListener('pointerdown', event => {
@@ -509,7 +519,7 @@
             setTimeout(syncZoom, 100);
         });
         window.addEventListener('resize', () => {
-            applyOverlayPosition(settings.overlayPosition.left, settings.overlayPosition.top);
+            applyOverlayPosition(settings.overlayPosition, settings.overlayPosition.top);
             setTimeout(syncZoom, 100);
         });
         window.addEventListener('pagehide', () => {

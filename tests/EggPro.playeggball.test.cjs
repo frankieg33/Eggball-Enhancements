@@ -157,11 +157,11 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     vm.runInNewContext(script, {
         window, document, localStorage: {
             getItem(key) {
-                if (key === 'eggpro.playeggball.settings.v3') return savedSettings === null ? null : JSON.stringify(savedSettings);
-                if (key === 'eggpro.playeggball.settings.v2') return legacySettings === null ? null : JSON.stringify(legacySettings);
+                if (key === 'eggpro.playeggball.settings.v4') return savedSettings === null ? null : JSON.stringify(savedSettings);
+                if (key === 'eggpro.playeggball.settings.v3') return legacySettings === null ? null : JSON.stringify(legacySettings);
                 return null;
             },
-            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v3') savedSettings = JSON.parse(value); },
+            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v4') savedSettings = JSON.parse(value); },
         },
         HTMLCanvasElement: Canvas,
         PointerEvent: MockEvent,
@@ -286,11 +286,22 @@ test('defaults zoom to 2, accepts values through 3, and uses None as the default
 });
 
 test('upgrades saved settings to the new zoom default and preserves other options', () => {
-    const h = makeHarness(null, { pixelPerfect: false, zoomFactor: 0.75, autoClick: true, clickIntervalMs: 250 });
+    const h = makeHarness(null, {
+        pixelPerfect: false, zoomFactor: 0.75, autoClick: true, clickIntervalMs: 250,
+        overlayPosition: { left: 12, top: 50 },
+    });
     assert.equal(h.game.zoomLevel, 2 / 2);
     assert.equal(h.control('Auto-click key').value, 'none');
     assert.equal(h.control('23px pixel-perfect egg').checked, false);
     assert.equal(h.control('Auto-click while holding configured key').checked, true);
+    assert.deepEqual(h.getStoredSettings().overlayPosition, { right: 12, top: 50 });
+});
+
+test('preserves a user-dragged overlay position when migrating settings', () => {
+    const h = makeHarness(null, { overlayPosition: { left: 92, top: 130 } });
+    assert.equal(h.panel.style.left, '92px');
+    assert.equal(h.panel.style.top, '130px');
+    assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 92, top: 130 });
 });
 
 test('auto-click dispatches pointer events for its selected key and stops on release', () => {
@@ -366,8 +377,11 @@ test('collapses and expands the overlay controls', () => {
 test('drags the overlay and saves its position, clamped to the viewport', () => {
     const h = makeHarness();
     const header = h.panel.children[0];
+    assert.equal(h.panel.style.left, '948px');
+    assert.equal(h.panel.style.top, '50px');
+    const initial = h.panel.getBoundingClientRect();
     header.fire('pointerdown', {
-        button: 0, pointerId: 7, clientX: 20, clientY: 60, target: header, preventDefault() {},
+        button: 0, pointerId: 7, clientX: initial.left + 8, clientY: initial.top + 10, target: header, preventDefault() {},
     });
     h.document.documentEvents.get('pointermove')({ pointerId: 7, clientX: 100, clientY: 140 });
     assert.equal(h.panel.style.left, '92px');

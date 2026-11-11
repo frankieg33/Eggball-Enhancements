@@ -7,7 +7,7 @@ Standalone Tampermonkey userscript for `https://playeggball.com/play` and `https
 1. Install Tampermonkey in Chrome or another supported browser.
 2. Create a userscript and paste in `Scripts/EggPro.playeggball.user.js`.
 3. Save it, then reload a PlayEggball game page.
-4. Use the EggPro panel at the top-left, 50 px below the top edge. Drag its header to move it, and use **Collapse** to reduce it to the header.
+4. Use the EggPro panel 12 px from the right edge and 50 px below the top. Drag its header to move it, and use **Collapse** to reduce it to the header.
 
 ## Features
 
@@ -16,7 +16,7 @@ Standalone Tampermonkey userscript for `https://playeggball.com/play` and `https
 - **Fullscreen:** The button requests browser fullscreen. PlayEggball resizes its PIXI renderer on window resize, so the game uses the added viewport directly.
 - **Auto-click:** Enable it and hold the selected key or the left mouse button over the game. The key selector defaults to **None**, which means mouse-only and does not trigger on Shift. It sends the pointer events used by PlayEggball's PIXI renderer. The default interval is 125 ms.
 
-The controls are opt-in except the egg replacement and zoom, which start enabled. Upgrading from beta.4 keeps the other saved options and moves the zoom default to 2. The overlay position is also saved in this site's local storage.
+The controls are opt-in except the egg replacement and zoom, which start enabled. Upgrading from beta.5 keeps the other saved options and moves the zoom default to 2. A previously saved default top-left position moves to the new top-right default; user-dragged positions remain saved in this site's local storage.
 
 ## Verification
 
