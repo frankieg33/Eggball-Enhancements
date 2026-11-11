@@ -6,134 +6,217 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const script = fs.readFileSync(path.join(__dirname, '..', 'Scripts', 'EggPro.playeggball.user.js'), 'utf8');
+const defaultScriptPath = path.join(__dirname, '..', 'Scripts', 'EggPro.playeggball.user.js');
+const script = fs.readFileSync(process.env.EGGPRO_SCRIPT_PATH || defaultScriptPath, 'utf8');
 
-function bootstrap(savedSettings = {}) {
-    class CanvasContext {
-        constructor() { this.imageSmoothingEnabled = true; this.seen = null; }
-        drawImage(image, ...args) {
-            this.seen = { image, args, smoothing: this.imageSmoothingEnabled };
-            if (image.fail) throw new Error('draw failure');
-            return 'drawn';
+function makeHarness(savedSettings = {}) {
+    const documentEvents = new Map();
+    const windowEvents = new Map();
+    const intervals = new Map();
+    let nextTimerId = 1;
+    const canvasEvents = [];
+
+    class Element {
+        constructor(tagName) {
+            this.tagName = tagName.toUpperCase();
+            this.children = [];
+            this.listeners = new Map();
+            this.style = {};
+            this.classList = { add() {}, remove() {}, toggle() {} };
+            this.hidden = false;
+            this.checked = false;
+            this.value = '';
+            this.textContent = '';
+            this.isConnected = true;
+        }
+        append(...children) {
+            this.children.push(...children);
+            this.textContent += children.map(child => child.textContent || '').join('');
+        }
+        appendChild(child) { this.append(child); }
+        addEventListener(type, handler) { this.listeners.set(type, handler); }
+        fire(type, event = {}) { return this.listeners.get(type)?.(event); }
+        contains(other) { return other === this; }
+    }
+
+    class Canvas extends Element {
+        constructor() {
+            super('canvas');
+            this.width = 1200;
+            this.height = 900;
+            this.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 900 });
+            this.dispatchEvent = event => { canvasEvents.push(event); return true; };
+            this.getContext = () => null;
         }
     }
-    const handlers = {};
-    vm.runInNewContext(script, {
-        CanvasRenderingContext2D: CanvasContext,
-        document: { readyState: 'loading', addEventListener() {} },
-        window: { addEventListener(type, handler) { handlers[type] = handler; } },
-        localStorage: { getItem() { return JSON.stringify(savedSettings); } },
-    });
-    return { CanvasContext, handlers };
-}
 
-test('recognizable egg is drawn without smoothing, then state restored', () => {
-    const { CanvasContext } = bootstrap();
-    const context = new CanvasContext();
-    assert.equal(context.drawImage({ src: 'https://cdn.example/assets/egg.png' }, 3, 4), 'drawn');
-    assert.equal(context.seen.smoothing, false);
-    assert.equal(context.imageSmoothingEnabled, true);
-});
+    const oldEggTexture = { width: 62, height: 78, baseTexture: { scaleMode: 0 } };
+    const perfectTexture = { width: 23, height: 23, baseTexture: { scaleMode: 0, update() {} } };
+    class Sprite {
+        constructor(texture) {
+            this.texture = texture;
+            this.scale = { x: 1, y: 1, set(x, y = x) { this.x = x; this.y = y; } };
+            this.pivot = { x: 0, y: 0, set(x, y) { this.x = x; this.y = y; } };
+            this.width = texture.width;
+            this.height = texture.height;
+            this.destroyed = false;
+        }
+        set width(value) { this._width = value; if (this.texture?.width) this.scale.x = value / this.texture.width; }
+        get width() { return this._width; }
+        set height(value) { this._height = value; if (this.texture?.height) this.scale.y = value / this.texture.height; }
+        get height() { return this._height; }
+    }
 
-test('other graphics retain native smoothing', () => {
-    const { CanvasContext } = bootstrap();
-    const context = new CanvasContext();
-    context.drawImage({ src: 'https://cdn.example/assets/grass.png' });
-    assert.equal(context.seen.smoothing, true);
-    assert.equal(context.imageSmoothingEnabled, true);
-});
-
-test('disabling pixel-perfect leaves ball images unchanged', () => {
-    const { CanvasContext } = bootstrap({ pixelPerfect: false });
-    const context = new CanvasContext();
-    context.drawImage({ src: '/assets/ball.webp' });
-    assert.equal(context.seen.smoothing, true);
-});
-
-test('draw errors restore the original rendering state', () => {
-    const { CanvasContext } = bootstrap();
-    const context = new CanvasContext();
-    assert.throws(() => context.drawImage({ src: '/assets/football.png', fail: true }), /draw failure/);
-    assert.equal(context.imageSmoothingEnabled, true);
-});
-
-test('pagehide restores only our own drawImage patch', () => {
-    const { CanvasContext, handlers } = bootstrap();
-    const patched = CanvasContext.prototype.drawImage;
-    CanvasContext.prototype.drawImage = function externalPatch() {};
-    handlers.pagehide();
-    assert.notEqual(CanvasContext.prototype.drawImage, patched);
-    assert.equal(CanvasContext.prototype.drawImage.name, 'externalPatch');
-});
-
-test('hold-Shift auto click dispatches while active and stops on release', () => {
-    const handlers = new Map();
-    const intervals = new Map();
-    let nextIntervalId = 1;
-    const canvasEvents = [];
-    const css = () => ({ add() {}, remove() {}, toggle() {} });
-    const createElement = tagName => ({
-        tagName: tagName.toUpperCase(),
-        classList: css(),
-        children: [],
-        append(...children) { this.children.push(...children); },
-        addEventListener(type, cb) { this[`on${type}`] = cb; },
-        getAttribute() { return null; },
-        contains() { return false; },
-    });
-    const canvas = createElement('canvas');
-    canvas.parentElement = createElement('div');
-    canvas.isConnected = true;
-    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 600, bottom: 400, width: 600, height: 400 });
-    canvas.dispatchEvent = e => { canvasEvents.push(e.type); return true; };
-    const document = {
-        readyState: 'loading', visibilityState: 'visible',
-        documentElement: createElement('html'),
-        body: createElement('body'),
-        head: createElement('head'),
-        activeElement: null,
-        addEventListener(type, cb) { handlers.set('document:' + type, cb); },
-        createElement,
-        createTextNode(text) { return { text }; },
-        querySelectorAll(selector) { return selector === 'canvas' ? [canvas] : []; },
-        elementFromPoint() { return canvas; },
+    const makeEggSprite = (mx, my) => {
+        const sprite = new Sprite(oldEggTexture);
+        sprite.scale.set(0.5);
+        sprite.width = 31;
+        sprite.height = 39;
+        sprite.pivot.set(31 - mx * 2, 39 - my * 2);
+        return sprite;
     };
-    const window = { addEventListener(type, cb) { handlers.set('window:' + type, cb); }, PIXI: null };
-    class MockEvent { constructor(type, options) { Object.assign(this, options); this.type = type; } }
+    const eggHolderSprite = makeEggSprite(20, 20);
+    const looseEggSprite = makeEggSprite(20, 20);
+    const camera = { follow: true, overview: false, pinned: false };
+    const canvas = new Canvas();
+    const game = {
+        camera,
+        zoomLevel: 1,
+        players: { 1: { look: { egg: eggHolderSprite } } },
+        bodies: { egg: { type: 'egg', look: looseEggSprite } },
+        view: {
+            canvas,
+            camera: { wholeFieldZoom: () => 2, update() {} },
+        },
+    };
+    const PIXI = {
+        Sprite,
+        Texture: { from: () => perfectTexture },
+        SCALE_MODES: { NEAREST: 1 },
+        utils: { TextureCache: { '/eggball/art/egg-field.png': oldEggTexture } },
+    };
+    const window = {
+        eggball: game,
+        PIXI,
+        ebEggSprite: makeEggSprite,
+        addEventListener(type, handler) { windowEvents.set(type, handler); },
+        innerWidth: 1200,
+        innerHeight: 900,
+    };
+    const document = {
+        readyState: 'loading',
+        visibilityState: 'visible',
+        activeElement: null,
+        fullscreenElement: null,
+        documentEvents,
+        body: new Element('body'),
+        head: new Element('head'),
+        documentElement: new Element('html'),
+        addEventListener(type, handler) { documentEvents.set(type, handler); },
+        createElement: tag => new Element(tag),
+        createTextNode: text => ({ textContent: text }),
+        querySelectorAll: selector => selector === 'canvas' ? [canvas] : [],
+        elementFromPoint: () => canvas,
+    };
+    document.documentElement.requestFullscreen = async () => { document.fullscreenElement = document.documentElement; };
+    document.exitFullscreen = async () => { document.fullscreenElement = null; };
+
     class MockMutationObserver { observe() {} }
+    class MockEvent {
+        constructor(type, init = {}) { this.type = type; Object.assign(this, init); }
+    }
+
     vm.runInNewContext(script, {
-        document, window, localStorage: { getItem() { return '{"autoClick":true}'; }, setItem() {} },
-        CanvasRenderingContext2D: class { drawImage() {} },
-        MutationObserver: MockMutationObserver,
+        window, document, localStorage: {
+            getItem() { return JSON.stringify(savedSettings); },
+            setItem() {},
+        },
+        HTMLCanvasElement: Canvas,
+        PointerEvent: MockEvent,
         MouseEvent: MockEvent,
-        setInterval(callback) { const id = nextIntervalId++; intervals.set(id, callback); return id; },
+        MutationObserver: MockMutationObserver,
+        setInterval(callback) { const id = nextTimerId++; intervals.set(id, callback); return id; },
         clearInterval(id) { intervals.delete(id); },
-        setTimeout() { return 1; },
+        setTimeout() { return nextTimerId++; },
         clearTimeout() {},
     });
-    handlers.get('document:DOMContentLoaded')();
-    handlers.get('document:pointermove')({ clientX: 250, clientY: 140 });
-    handlers.get('document:keydown')({ key: 'Shift', repeat: false });
-    assert.deepEqual(canvasEvents, ['mousedown', 'mouseup', 'click']);
-    assert.equal(intervals.size, 2); // click timer plus PIXI inspection timer
-    handlers.get('document:keyup')({ key: 'Shift' });
-    assert.equal(intervals.size, 1); // only PIXI inspection remains
-    const previous = canvasEvents.length;
-    for (const f of intervals.values()) f();
-    assert.equal(canvasEvents.length, previous);
-    assert.equal(document.documentElement.classList !== null, true);
+    documentEvents.get('DOMContentLoaded')();
+
+    const panel = document.body.children.find(element => element.id === 'eggpro-panel');
+    const control = text => panel.children.find(element => element.tagName === 'LABEL' && element.textContent.includes(text)).children[0];
+    return { document, window, game, camera, canvas, panel, status: panel.children.at(-1), control, intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture };
+}
+
+test('uses PlayEggball whole-field zoom and restores the prior camera state', () => {
+    const h = makeHarness();
+    assert.equal(h.camera.overview, true);
+    assert.equal(h.camera.pinned, true);
+    assert.equal(h.camera.follow, true);
+    assert.equal(h.game.zoomLevel, 2 / 0.75);
+
+    const zoomToggle = h.control('Zoom out to the full field');
+    zoomToggle.checked = false;
+    zoomToggle.fire('change');
+    assert.equal(h.camera.overview, false);
+    assert.equal(h.camera.pinned, false);
+    assert.equal(h.game.zoomLevel, 1);
 });
-test('metadata includes the /game route', () => {
+
+test('replaces the live Eggball sprite API and existing held and loose eggs', () => {
+    const h = makeHarness();
+    const created = h.window.ebEggSprite(20, 20);
+    assert.equal(created.texture, h.perfectTexture);
+    assert.equal(created.width, 23);
+    assert.equal(created.height, 23);
+    assert.equal(h.perfectTexture.baseTexture.scaleMode, 1);
+
+    for (const update of h.intervals.values()) update();
+    assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+    assert.equal(h.looseEggSprite.texture, h.perfectTexture);
+    assert.match(h.status.textContent, /Egg: replaced/);
+});
+
+test('auto-click dispatches pointer events while Shift is held and stops on release', () => {
+    const h = makeHarness();
+    const autoToggle = h.control('Auto-click while holding Shift');
+    autoToggle.checked = true;
+    autoToggle.fire('change');
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: 'Shift', repeat: false, altKey: false, shiftKey: true, code: 'ShiftLeft', preventDefault() {} });
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
+    assert.equal(h.canvasEvents[0].pointerType, 'mouse');
+    assert.equal(h.canvasEvents[0].buttons, 1);
+    assert.equal(h.canvasEvents[1].buttons, 0);
+
+    h.document.documentEvents.get('keyup')({ key: 'Shift' });
+    const previousCount = h.canvasEvents.length;
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.canvasEvents.length, previousCount);
+});
+
+test('auto-click stops when the pointer leaves the game canvas or the page is hidden', () => {
+    const h = makeHarness({ autoClick: true });
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: 'Shift', repeat: false, altKey: false, shiftKey: true, code: 'ShiftLeft', preventDefault() {} });
+    assert.equal(h.canvasEvents.length, 2);
+
+    h.document.elementFromPoint = () => h.panel;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    assert.equal(h.canvasEvents.length, 2);
+
+    h.document.visibilityState = 'hidden';
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.canvasEvents.length, 2);
+});
+
+test('fullscreen control requests fullscreen from the browser document', async () => {
+    const h = makeHarness();
+    const button = h.panel.children.find(element => element.tagName === 'BUTTON');
+    await button.fire('click');
+    assert.equal(h.document.fullscreenElement, h.document.documentElement);
+});
+
+test('userscript matches ranked play and game routes', () => {
+    assert.match(script, /@match\s+https:\/\/playeggball\.com\/play\*/);
     assert.match(script, /@match\s+https:\/\/playeggball\.com\/game\*/);
-});
-
-test('no fixed black viewport overlay remains', () => {
-    assert.doesNotMatch(script, /eggpro-full-viewport/);
-    assert.doesNotMatch(script, /background:\s*#101015/);
-});
-
-test('supplied egg is embedded and has camera-aware zoom', () => {
-    assert.match(script, /PERFECT_EGG_URL = "data:image\/png;base64,/);
-    assert.match(script, /function syncZoom\(\)/);
-    assert.match(script, /camera\.setZoom\(desired\)/);
 });
