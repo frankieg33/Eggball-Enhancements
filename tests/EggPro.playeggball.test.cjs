@@ -124,7 +124,7 @@ test('hold-Shift auto click dispatches while active and stops on release', () =>
     assert.equal(document.documentElement.classList !== null, true);
 });
 test('metadata includes the /game route', () => {
-    assert.match(script, /@match\\s+https:\/\/playeggball\\.com\/game\\*/);
+    assert.match(script, /@match\s+https:\/\/playeggball\.com\/game\*/);
 });
 
 test('no fixed black viewport overlay remains', () => {
