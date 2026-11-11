@@ -1,6 +1,6 @@
 # EggPro for PlayEggball (beta)
 
-Standalone Tampermonkey userscript for https://playeggball.com/play?mode=ranked.
+Standalone Tampermonkey userscript for https://playeggball.com/play?mode=ranked and https://playeggball.com/game.
 This does **not** replace the TagPro-specific `Scripts/EggPro.user.js`.
 
 ## Install
@@ -10,23 +10,22 @@ This does **not** replace the TagPro-specific `Scripts/EggPro.user.js`.
 3. Save the script and reload the PlayEggball game page.
 4. Configure the EggPro panel in the top-right corner. Press Alt+Shift+E to hide or show it.
 
-## Features
+## Features (beta.2)
 
-- **Pixel-sharp ball assets (enabled):** CSS for identifiable ball/egg DOM images, a narrowly scoped Canvas2D drawImage hook, and a PIXI v5-v7 texture cache adjustment if PIXI is exposed. This is not a complete port of TagPro's held-egg sprite overlay.
-- **Full-viewport field (enabled):** expands the largest visible game canvas' wrapper to fill the viewport while preserving the canvas' aspect ratio. The `Browser fullscreen` button also calls the browser Fullscreen API (requires a user gesture). It cannot guarantee that a game camera reveals the *entire map*.
-- **Auto click (disabled initially):** enable it in EggPro's panel, then hold Shift or hold the left mouse button over the game canvas. Default interval 125 ms; configurable 80–1000 ms. Switch input mode from `mouse` to `pointer` if the game uses pointer events.
-
-Auto-click stops on key/mouse release, loss of focus, or tab visibility change. No direct socket messages or game memory changes are made. The game may reject synthetic browser events.
+- **Exact egg image:** Embeds the supplied 23 × 23 yellow ball with black outline. Replaces identifiable DOM egg images, matching Canvas2D image draws, or yellow full-circle Canvas2D paths. Exposed PIXI v5-v7 egg textures are also supported when the game exposes the app/texture cache.
+- **Zoom out:** Uses a detected game camera's `setZoom()` method (default 75%). A fallback resizes the drawing buffer for accessible 2D canvases, although it only reveals more of the field when the game derives its camera dimensions from that buffer. If neither applies, the panel reports a limitation instead of pretending it worked. Changing a canvas buffer may reset its context.
+- **Responsive canvas:** Removed the fixed black background overlay that previously obscured the game. The button `Browser fullscreen` calls the Fullscreen API, which does not itself zoom out.
+- **Auto click:** Unchanged. Enable in the panel and hold Shift or the left mouse button; configure 80–1000 ms.
 
 ## Status / limitations
 
-The live site's HTML and JavaScript bundles were not accessible from this development environment. Its renderer, ball model, input handler, and camera API are unverified. Consequently, the three behaviors are not yet confirmed against a live ranked match. In particular, if the game uses an internal WebGL renderer and does not expose PIXI textures, ball sharpening will do nothing until a game-specific renderer adapter is added. The panel reports whether a recognizable ball asset has been encountered.
+The live PlayEggball renderer and camera could not be inspected from the available tools. The ball-replacement heuristics may not match its assets, and browser zoom may differ from true full-map visibility. Confirm which zoom mode the panel reports. If it says `camera not exposed` or `no 2D camera`, a game-specific renderer adapter is still required. The 2D canvas fallback is experimental. The game can also ignore synthetic clicks.
 
 ## Local tests
 
 ```bash
-node --check EggPro.playeggball.user.js
-node --test EggPro.playeggball.test.cjs
+node --check Scripts/EggPro.playeggball.user.js
+node --test tests/EggPro.playeggball.test.cjs
 ```
 
 The tests exercise Canvas2D smoothing isolation, draw errors, cleanup, and press-to-click behavior with a mocked canvas. They do not test a live game.
