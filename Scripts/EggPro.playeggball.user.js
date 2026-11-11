@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.3
+// @version      2.0.0-beta.4
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
 // @match        https://playeggball.com/play*
@@ -13,11 +13,16 @@
 (() => {
     'use strict';
 
-    const STORAGE_KEY = 'eggpro.playeggball.settings.v1';
-    const DEFAULTS = { pixelPerfect: true, zoomOut: true, zoomFactor: 0.75, autoClick: false, clickIntervalMs: 125 };
+    const STORAGE_KEY = 'eggpro.playeggball.settings.v2';
+    const LEGACY_STORAGE_KEY = 'eggpro.playeggball.settings.v1';
+    const DEFAULTS = { pixelPerfect: true, zoomOut: true, zoomFactor: 1.25, autoClick: false, autoClickKey: 'none', clickIntervalMs: 125 };
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
     const settings = loadSettings();
     const changedSprites = new Map();
+    let eggTextures = new Set();
+    let textureHookPrototype = null;
+    let originalTextureDescriptor = null;
+    let textureSetterWrapper = null;
 
     let panel = null;
     let status = null;
@@ -28,7 +33,7 @@
     let eggSpriteWrapper = null;
     let perfectEggTexture = null;
     let pointer = null;
-    let shiftHeld = false;
+    let gateKeyHeld = false;
     let mouseHeld = false;
     let clickTimer = null;
     let syncTimer = null;
@@ -36,16 +41,23 @@
 
     function loadSettings() {
         try {
-            const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            return {
+            const current = localStorage.getItem(STORAGE_KEY);
+            const legacy = current === null ? localStorage.getItem(LEGACY_STORAGE_KEY) : null;
+            const saved = JSON.parse(current || legacy || '{}');
+            const loaded = {
                 pixelPerfect: typeof saved.pixelPerfect === 'boolean' ? saved.pixelPerfect : DEFAULTS.pixelPerfect,
                 zoomOut: typeof saved.zoomOut === 'boolean' ? saved.zoomOut : DEFAULTS.zoomOut,
-                zoomFactor: Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 1
+                zoomFactor: !current && legacy ? DEFAULTS.zoomFactor
+                    : Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 1.25
                     ? saved.zoomFactor : DEFAULTS.zoomFactor,
                 autoClick: typeof saved.autoClick === 'boolean' ? saved.autoClick : DEFAULTS.autoClick,
+                autoClickKey: ['none', 'Shift', 'Space', 'Control', 'Alt'].includes(saved.autoClickKey)
+                    ? saved.autoClickKey : DEFAULTS.autoClickKey,
                 clickIntervalMs: Number.isInteger(saved.clickIntervalMs) && saved.clickIntervalMs >= 80 && saved.clickIntervalMs <= 1000
                     ? saved.clickIntervalMs : DEFAULTS.clickIntervalMs,
             };
+            if (!current && legacy) localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
+            return loaded;
         } catch { return { ...DEFAULTS }; }
     }
 
@@ -78,8 +90,6 @@
     function rememberAndReplaceEggSprite(sprite, texture) {
         if (!sprite || !sprite.texture || sprite.destroyed) return false;
         const previous = changedSprites.get(sprite);
-        if (previous && sprite.texture === texture) return true;
-        if (previous) changedSprites.delete(sprite);
         const width = sprite.width;
         const height = sprite.height;
         const scaleX = sprite.scale.x;
@@ -88,7 +98,7 @@
         const pivotY = sprite.pivot.y;
         const centerX = width / 2 - pivotX * scaleX;
         const centerY = height / 2 - pivotY * scaleY;
-        changedSprites.set(sprite, { texture: sprite.texture, scaleX, scaleY, pivotX, pivotY });
+        if (!previous) changedSprites.set(sprite, { texture: sprite.texture, scaleX, scaleY, pivotX, pivotY });
         sprite.texture = texture;
         sprite.width = 23;
         sprite.height = 23;
@@ -106,7 +116,53 @@
         changedSprites.clear();
     }
 
+    function syncEggTextureHook() {
+        const pixi = window.PIXI;
+        const cache = pixi && pixi.utils && pixi.utils.TextureCache;
+        eggTextures = new Set(cache ? Object.entries(cache)
+            .filter(([name]) => isEggTextureName(name)).map(([, texture]) => texture) : []);
+        const prototype = pixi && pixi.Sprite && pixi.Sprite.prototype;
+        if (!settings.pixelPerfect || !prototype || !eggTextures.size) {
+            if (textureHookPrototype && Object.getOwnPropertyDescriptor(textureHookPrototype, 'texture')?.set === textureSetterWrapper) {
+                Object.defineProperty(textureHookPrototype, 'texture', originalTextureDescriptor);
+            }
+            textureHookPrototype = null;
+            originalTextureDescriptor = null;
+            textureSetterWrapper = null;
+            return;
+        }
+        if (prototype === textureHookPrototype && Object.getOwnPropertyDescriptor(prototype, 'texture')?.set === textureSetterWrapper) return;
+        if (textureHookPrototype && Object.getOwnPropertyDescriptor(textureHookPrototype, 'texture')?.set === textureSetterWrapper) {
+            Object.defineProperty(textureHookPrototype, 'texture', originalTextureDescriptor);
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, 'texture');
+        if (!descriptor || typeof descriptor.set !== 'function') return;
+        textureHookPrototype = prototype;
+        originalTextureDescriptor = descriptor;
+        textureSetterWrapper = function (value) {
+            const replacement = settings.pixelPerfect && eggTextures.has(value) ? getPerfectEggTexture() : null;
+            if (!replacement || value === replacement) return descriptor.set.call(this, value);
+            const previous = changedSprites.get(this);
+            const width = this.width;
+            const height = this.height;
+            const scaleX = this.scale.x;
+            const scaleY = this.scale.y;
+            const pivotX = this.pivot.x;
+            const pivotY = this.pivot.y;
+            const centerX = width / 2 - pivotX * scaleX;
+            const centerY = height / 2 - pivotY * scaleY;
+            if (previous) previous.texture = value;
+            else changedSprites.set(this, { texture: value, scaleX, scaleY, pivotX, pivotY });
+            descriptor.set.call(this, replacement);
+            this.width = 23;
+            this.height = 23;
+            this.pivot.set(11.5 - centerX, 11.5 - centerY);
+        };
+        Object.defineProperty(prototype, 'texture', { ...descriptor, set: textureSetterWrapper });
+    }
+
     function installEggSpriteHook() {
+        syncEggTextureHook();
         if (!settings.pixelPerfect) {
             if (eggSpriteWrapper && window.ebEggSprite === eggSpriteWrapper) window.ebEggSprite = eggSpriteOriginal;
             eggSpriteOriginal = null;
@@ -131,10 +187,7 @@
     }
 
     function syncExistingEggSprites(game) {
-        const pixi = window.PIXI;
-        const cache = pixi && pixi.utils && pixi.utils.TextureCache;
-        if (!cache) return;
-        const eggTextures = new Set(Object.entries(cache).filter(([name]) => isEggTextureName(name)).map(([, texture]) => texture));
+        if (!eggTextures.size) return;
         const replacement = getPerfectEggTexture();
         if (!replacement || !eggTextures.size) return;
         const replace = sprite => {
@@ -179,7 +232,7 @@
         }
         camera.overview = true;
         camera.pinned = true;
-        game.zoomLevel = Math.max(1, wholeFieldZoom / settings.zoomFactor);
+        game.zoomLevel = wholeFieldZoom / settings.zoomFactor;
         zoomStatus = 'full field (' + Math.round(100 / settings.zoomFactor) + '%)';
     }
 
@@ -189,7 +242,7 @@
     }
 
     function canAutoClick() {
-        if (!settings.autoClick || !(shiftHeld || mouseHeld) || !canvas || !canvas.isConnected || !pointer) return false;
+        if (!settings.autoClick || !(gateKeyHeld || mouseHeld) || !canvas || !canvas.isConnected || !pointer) return false;
         if (document.visibilityState === 'hidden') return false;
         const active = document.activeElement;
         if (active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) return false;
@@ -237,7 +290,11 @@
         settings[key] = value;
         saveSettings();
         if (key === 'autoClick' && !value) stopClicking();
-        if (key === 'pixelPerfect') installEggSpriteHook();
+        if (key === 'pixelPerfect') {
+            installEggSpriteHook();
+            const game = getGame();
+            if (value && game) syncExistingEggSprites(game);
+        }
         if (key === 'zoomOut' && !value) restoreGameZoom();
         syncZoom();
         syncClicking();
@@ -259,10 +316,12 @@
         const style = document.createElement('style');
         style.textContent = `
           #eggpro-panel[hidden]{display:none!important}
-          #eggpro-panel{position:fixed;top:12px;right:12px;z-index:2147483647;display:flex;
+          #eggpro-panel{position:fixed;top:50px;left:12px;right:auto;z-index:2147483647;display:flex;
             flex-direction:column;gap:7px;min-width:230px;padding:12px;border:1px solid #777;
             border-radius:9px;background:rgba(18,20,29,.94);color:#fff;font:12px/1.35 system-ui,sans-serif;
             box-shadow:0 6px 24px #0007}
+          #eggpro-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+          #eggpro-controls{display:flex;flex-direction:column;gap:7px}
           #eggpro-panel label{display:block;cursor:pointer}
           #eggpro-panel input[type=number]{width:65px}
           #eggpro-panel button,#eggpro-panel input{font:inherit}
@@ -272,17 +331,14 @@
         document.head.append(style);
         panel = document.createElement('aside');
         panel.id = 'eggpro-panel';
-        const title = document.createElement('strong');
-        title.textContent = 'EggPro 2.0';
-
         const zoomLabel = document.createElement('label');
-        zoomLabel.append(document.createTextNode('Whole-field zoom factor '));
+        zoomLabel.append(document.createTextNode('Field zoom factor '));
         const zoomInput = document.createElement('input');
-        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '1'; zoomInput.step = '0.05';
+        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '1.25'; zoomInput.step = '0.05';
         zoomInput.value = String(settings.zoomFactor);
         zoomInput.addEventListener('change', () => {
             const value = Number(zoomInput.value);
-            if (Number.isFinite(value) && value >= 0.5 && value <= 1) {
+            if (Number.isFinite(value) && value >= 0.5 && value <= 1.25) {
                 settings.zoomFactor = value;
                 saveSettings(); syncZoom(); updateStatus();
             } else zoomInput.value = String(settings.zoomFactor);
@@ -314,27 +370,61 @@
             }
         });
         fullscreenButton.textContent = 'Enter fullscreen';
+
+        const keyLabel = document.createElement('label');
+        keyLabel.append(document.createTextNode('Auto-click key (None = mouse only) '));
+        const keySelect = document.createElement('select');
+        for (const [value, label] of [['none', 'None'], ['Shift', 'Shift'], ['Space', 'Space'], ['Control', 'Control'], ['Alt', 'Alt']]) {
+            const option = document.createElement('option');
+            option.value = value; option.textContent = label; keySelect.append(option);
+        }
+        keySelect.value = settings.autoClickKey;
+        keySelect.addEventListener('change', () => {
+            gateKeyHeld = false;
+            keySelect.blur?.();
+            setSetting('autoClickKey', keySelect.value);
+        });
+        keyLabel.append(keySelect);
+
+        const header = document.createElement('header');
+        const title = document.createElement('strong');
+        title.textContent = 'EggPro 2.0';
+        const collapseButton = document.createElement('button');
+        collapseButton.type = 'button';
+        collapseButton.textContent = 'Collapse';
+        const controls = document.createElement('div');
+        controls.id = 'eggpro-controls';
+        collapseButton.addEventListener('click', () => {
+            controls.hidden = !controls.hidden;
+            collapseButton.textContent = controls.hidden ? 'Expand' : 'Collapse';
+        });
+        header.append(title, collapseButton);
+
         status = document.createElement('small');
-        panel.append(title,
+        controls.append(
             checkbox('23px pixel-perfect egg', 'pixelPerfect'),
-            checkbox('Zoom out to the full field', 'zoomOut'),
-            zoomLabel, fullscreenButton,
-            checkbox('Auto-click while holding Shift or left mouse', 'autoClick'),
+            checkbox('Enable Eggball camera zoom', 'zoomOut'),
+            zoomLabel, fullscreenButton, keyLabel,
+            checkbox('Auto-click while holding configured key or left mouse', 'autoClick'),
             intervalLabel,
             status);
+        panel.append(header, controls);
         panel.addEventListener('pointerdown', event => event.stopPropagation());
         panel.addEventListener('mousedown', event => event.stopPropagation());
         document.body.append(panel);
 
         document.addEventListener('pointermove', event => {
             pointer = { x: event.clientX, y: event.clientY };
-            if (shiftHeld || mouseHeld) syncClicking();
+            if (gateKeyHeld || mouseHeld) syncClicking();
         }, { passive: true, capture: true });
         document.addEventListener('keydown', event => {
-            if (event.key === 'Shift' && !event.repeat && !isTyping()) { shiftHeld = true; syncClicking(); }
-            if (event.altKey && event.shiftKey && event.code === 'KeyE') { event.preventDefault(); panel.hidden = !panel.hidden; }
+            if (isAutoClickKey(event) && !event.repeat && !isTyping()) {
+                gateKeyHeld = true; syncClicking();
+            }
         }, true);
-        document.addEventListener('keyup', event => { if (event.key === 'Shift') { shiftHeld = false; syncClicking(); } }, true);
+        document.addEventListener('keyup', event => {
+            if (isAutoClickKey(event)) { gateKeyHeld = false; syncClicking(); }
+        }, true);
         document.addEventListener('mousedown', event => {
             if (event.isTrusted && event.button === 0 && event.target === canvas) {
                 pointer = { x: event.clientX, y: event.clientY };
@@ -344,9 +434,9 @@
         document.addEventListener('mouseup', event => {
             if (event.isTrusted && event.button === 0) { mouseHeld = false; syncClicking(); }
         }, true);
-        window.addEventListener('blur', () => { shiftHeld = false; mouseHeld = false; stopClicking(); });
+        window.addEventListener('blur', () => { gateKeyHeld = false; mouseHeld = false; stopClicking(); });
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') { shiftHeld = false; mouseHeld = false; stopClicking(); }
+            if (document.visibilityState === 'hidden') { gateKeyHeld = false; mouseHeld = false; stopClicking(); }
         });
         document.addEventListener('fullscreenchange', () => {
             if (fullscreenButton) fullscreenButton.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen';
@@ -357,6 +447,12 @@
             stopClicking(); restoreGameZoom();
             clearInterval(syncTimer);
             if (eggSpriteWrapper && window.ebEggSprite === eggSpriteWrapper) window.ebEggSprite = eggSpriteOriginal;
+            if (textureHookPrototype && Object.getOwnPropertyDescriptor(textureHookPrototype, 'texture')?.set === textureSetterWrapper) {
+                Object.defineProperty(textureHookPrototype, 'texture', originalTextureDescriptor);
+            }
+            textureHookPrototype = null;
+            originalTextureDescriptor = null;
+            textureSetterWrapper = null;
             restoreEggSprites();
         }, { once: true });
 
@@ -369,12 +465,19 @@
         }, 250);
         canvas = findGameCanvas();
         installEggSpriteHook();
+        const game = getGame();
+        if (settings.pixelPerfect && game) syncExistingEggSprites(game);
         syncZoom(); updateStatus();
     }
 
     function isTyping() {
         const active = document.activeElement;
         return !!active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
+    }
+
+    function isAutoClickKey(event) {
+        if (settings.autoClickKey === 'Space') return event.code === 'Space';
+        return settings.autoClickKey !== 'none' && event.key === settings.autoClickKey;
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountPanel, { once: true });

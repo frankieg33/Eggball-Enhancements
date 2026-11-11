@@ -9,7 +9,7 @@ const vm = require('node:vm');
 const defaultScriptPath = path.join(__dirname, '..', 'Scripts', 'EggPro.playeggball.user.js');
 const script = fs.readFileSync(process.env.EGGPRO_SCRIPT_PATH || defaultScriptPath, 'utf8');
 
-function makeHarness(savedSettings = {}) {
+function makeHarness(savedSettings = {}, legacySettings = null) {
     const documentEvents = new Map();
     const windowEvents = new Map();
     const intervals = new Map();
@@ -31,6 +31,7 @@ function makeHarness(savedSettings = {}) {
         }
         append(...children) {
             this.children.push(...children);
+            for (const child of children) child.parentElement = this;
             this.textContent += children.map(child => child.textContent || '').join('');
         }
         appendChild(child) { this.append(child); }
@@ -51,16 +52,19 @@ function makeHarness(savedSettings = {}) {
     }
 
     const oldEggTexture = { width: 62, height: 78, baseTexture: { scaleMode: 0 } };
+    const coloredEggTexture = { width: 62, height: 78, baseTexture: { scaleMode: 0 } };
     const perfectTexture = { width: 23, height: 23, baseTexture: { scaleMode: 0, update() {} } };
     class Sprite {
         constructor(texture) {
-            this.texture = texture;
+            this._texture = texture;
             this.scale = { x: 1, y: 1, set(x, y = x) { this.x = x; this.y = y; } };
             this.pivot = { x: 0, y: 0, set(x, y) { this.x = x; this.y = y; } };
             this.width = texture.width;
             this.height = texture.height;
             this.destroyed = false;
         }
+        get texture() { return this._texture; }
+        set texture(value) { this._texture = value; }
         set width(value) { this._width = value; if (this.texture?.width) this.scale.x = value / this.texture.width; }
         get width() { return this._width; }
         set height(value) { this._height = value; if (this.texture?.height) this.scale.y = value / this.texture.height; }
@@ -93,7 +97,10 @@ function makeHarness(savedSettings = {}) {
         Sprite,
         Texture: { from: () => perfectTexture },
         SCALE_MODES: { NEAREST: 1 },
-        utils: { TextureCache: { '/eggball/art/egg-field.png': oldEggTexture } },
+        utils: { TextureCache: {
+            '/eggball/art/egg-field.png': oldEggTexture,
+            '/eggball/art/egg-pumpkin.png': coloredEggTexture,
+        } },
     };
     const window = {
         eggball: game,
@@ -128,8 +135,12 @@ function makeHarness(savedSettings = {}) {
 
     vm.runInNewContext(script, {
         window, document, localStorage: {
-            getItem() { return JSON.stringify(savedSettings); },
-            setItem() {},
+            getItem(key) {
+                if (key === 'eggpro.playeggball.settings.v2') return savedSettings === null ? null : JSON.stringify(savedSettings);
+                if (key === 'eggpro.playeggball.settings.v1') return legacySettings === null ? null : JSON.stringify(legacySettings);
+                return null;
+            },
+            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v2') savedSettings = JSON.parse(value); },
         },
         HTMLCanvasElement: Canvas,
         PointerEvent: MockEvent,
@@ -143,8 +154,10 @@ function makeHarness(savedSettings = {}) {
     documentEvents.get('DOMContentLoaded')();
 
     const panel = document.body.children.find(element => element.id === 'eggpro-panel');
-    const control = text => panel.children.find(element => element.tagName === 'LABEL' && element.textContent.includes(text)).children[0];
-    return { document, window, game, camera, canvas, panel, status: panel.children.at(-1), control, intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture };
+    const controls = panel.children.find(element => element.id === 'eggpro-controls');
+    const control = text => controls.children.find(element => element.tagName === 'LABEL' && element.textContent.includes(text))
+        .children.find(child => child.tagName === 'INPUT' || child.tagName === 'SELECT');
+    return { document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control, intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture };
 }
 
 test('uses PlayEggball whole-field zoom and restores the prior camera state', () => {
@@ -152,9 +165,9 @@ test('uses PlayEggball whole-field zoom and restores the prior camera state', ()
     assert.equal(h.camera.overview, true);
     assert.equal(h.camera.pinned, true);
     assert.equal(h.camera.follow, true);
-    assert.equal(h.game.zoomLevel, 2 / 0.75);
+    assert.equal(h.game.zoomLevel, 2 / 1.25);
 
-    const zoomToggle = h.control('Zoom out to the full field');
+    const zoomToggle = h.control('Enable Eggball camera zoom');
     zoomToggle.checked = false;
     zoomToggle.fire('change');
     assert.equal(h.camera.overview, false);
@@ -164,6 +177,8 @@ test('uses PlayEggball whole-field zoom and restores the prior camera state', ()
 
 test('replaces the live Eggball sprite API and existing held and loose eggs', () => {
     const h = makeHarness();
+    assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+    assert.equal(h.looseEggSprite.texture, h.perfectTexture);
     const created = h.window.ebEggSprite(20, 20);
     assert.equal(created.texture, h.perfectTexture);
     assert.equal(created.width, 23);
@@ -176,28 +191,87 @@ test('replaces the live Eggball sprite API and existing held and loose eggs', ()
     assert.match(h.status.textContent, /Egg: replaced/);
 });
 
-test('auto-click dispatches pointer events while Shift is held and stops on release', () => {
+test('replaces a color-variant egg texture immediately, before the periodic sprite scan', () => {
     const h = makeHarness();
-    const autoToggle = h.control('Auto-click while holding Shift');
+    h.eggHolderSprite.texture = h.coloredEggTexture;
+    assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+    assert.equal(h.eggHolderSprite.width, 23);
+    assert.equal(h.eggHolderSprite.height, 23);
+
+    const pixelPerfect = h.control('23px pixel-perfect egg');
+    pixelPerfect.checked = false;
+    pixelPerfect.fire('change');
+    assert.equal(h.eggHolderSprite.texture, h.coloredEggTexture);
+});
+
+test('accepts 1.25 zoom and uses None as the default auto-click key', () => {
+    const h = makeHarness({ zoomFactor: 0.75 });
+    const zoom = h.control('Field zoom factor');
+    assert.equal(zoom.max, '1.25');
+    zoom.value = '1.25';
+    h.game.view.camera.wholeFieldZoom = () => 1.04;
+    zoom.fire('change');
+    assert.equal(h.game.zoomLevel, 1.04 / 1.25);
+    assert.ok(h.game.zoomLevel < 1);
+
+    const autoKey = h.control('Auto-click key');
+    assert.equal(autoKey.value, 'none');
+    const autoToggle = h.control('Auto-click while holding configured key');
     autoToggle.checked = true;
     autoToggle.fire('change');
     h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
-    h.document.documentEvents.get('keydown')({ key: 'Shift', repeat: false, altKey: false, shiftKey: true, code: 'ShiftLeft', preventDefault() {} });
+    h.document.documentEvents.get('keydown')({ key: 'Shift', code: 'ShiftLeft', repeat: false });
+    assert.equal(h.canvasEvents.length, 0);
+});
+
+test('upgrades saved settings to the new 1.25 zoom default and None key', () => {
+    const h = makeHarness(null, { pixelPerfect: false, zoomFactor: 0.75, autoClick: true, clickIntervalMs: 250 });
+    assert.equal(h.game.zoomLevel, 2 / 1.25);
+    assert.equal(h.control('Auto-click key').value, 'none');
+    assert.equal(h.control('23px pixel-perfect egg').checked, false);
+    assert.equal(h.control('Auto-click while holding configured key').checked, true);
+});
+
+test('auto-click dispatches pointer events for its selected key and stops on release', () => {
+    const h = makeHarness();
+    const autoKey = h.control('Auto-click key');
+    autoKey.value = 'Space';
+    autoKey.fire('change');
+    const autoToggle = h.control('Auto-click while holding configured key');
+    autoToggle.checked = true;
+    autoToggle.fire('change');
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
     assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
     assert.equal(h.canvasEvents[0].pointerType, 'mouse');
     assert.equal(h.canvasEvents[0].buttons, 1);
     assert.equal(h.canvasEvents[1].buttons, 0);
 
-    h.document.documentEvents.get('keyup')({ key: 'Shift' });
+    h.document.documentEvents.get('keyup')({ key: ' ', code: 'Space' });
+    const previousCount = h.canvasEvents.length;
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.canvasEvents.length, previousCount);
+});
+
+test('None keeps mouse hold as the auto-click trigger', () => {
+    const h = makeHarness();
+    const autoToggle = h.control('Auto-click while holding configured key');
+    autoToggle.checked = true;
+    autoToggle.fire('change');
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
+    h.document.documentEvents.get('mouseup')({ isTrusted: true, button: 0 });
     const previousCount = h.canvasEvents.length;
     for (const tick of h.intervals.values()) tick();
     assert.equal(h.canvasEvents.length, previousCount);
 });
 
 test('auto-click stops when the pointer leaves the game canvas or the page is hidden', () => {
-    const h = makeHarness({ autoClick: true });
+    const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
     h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
-    h.document.documentEvents.get('keydown')({ key: 'Shift', repeat: false, altKey: false, shiftKey: true, code: 'ShiftLeft', preventDefault() {} });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
     assert.equal(h.canvasEvents.length, 2);
 
     h.document.elementFromPoint = () => h.panel;
@@ -211,9 +285,20 @@ test('auto-click stops when the pointer leaves the game canvas or the page is hi
 
 test('fullscreen control requests fullscreen from the browser document', async () => {
     const h = makeHarness();
-    const button = h.panel.children.find(element => element.tagName === 'BUTTON');
+    const button = h.controls.children.find(element => element.tagName === 'BUTTON');
     await button.fire('click');
     assert.equal(h.document.fullscreenElement, h.document.documentElement);
+});
+
+test('collapses and expands the overlay controls', () => {
+    const h = makeHarness();
+    const toggle = h.panel.children[0].children[1];
+    toggle.fire('click');
+    assert.equal(h.controls.hidden, true);
+    assert.equal(toggle.textContent, 'Expand');
+    toggle.fire('click');
+    assert.equal(h.controls.hidden, false);
+    assert.equal(toggle.textContent, 'Collapse');
 });
 
 test('userscript matches ranked play and game routes', () => {

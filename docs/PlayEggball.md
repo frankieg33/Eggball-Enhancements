@@ -7,20 +7,20 @@ Standalone Tampermonkey userscript for `https://playeggball.com/play` and `https
 1. Install Tampermonkey in Chrome or another supported browser.
 2. Create a userscript and paste in `Scripts/EggPro.playeggball.user.js`.
 3. Save it, then reload a PlayEggball game page.
-4. Use the EggPro panel in the top-right corner. Press Alt+Shift+E to hide or show it.
+4. Use the EggPro panel at the top-left, 50 px below the top edge. Use **Collapse** to reduce it to its header.
 
 ## Features
 
-- **Pixel-perfect egg:** Replaces Eggball's live `ebEggSprite()` output with the embedded 23 × 23 image. PIXI uses nearest-neighbor sampling, and existing held and loose egg sprites are updated too.
-- **Full-field zoom:** Uses the game's `eggball.view.camera.wholeFieldZoom()` calculation and camera overview state. The zoom factor defaults to 0.75, showing more than the full-field framing. It follows the game's existing camera-follow preference.
+- **Pixel-perfect egg:** Replaces Eggball's live `ebEggSprite()` output with the embedded 23 × 23 image. It also intercepts changes to cached egg textures, including color variants, before the next render. PIXI uses nearest-neighbor sampling, and existing held and loose egg sprites are updated too.
+- **Camera zoom:** Uses the game's `eggball.view.camera.wholeFieldZoom()` calculation and camera overview state. The zoom factor defaults to 1.25 and accepts values from 0.5 to 1.25. Values below 1 show more than the whole-field framing; values above 1 zoom in closer. It follows the game's existing camera-follow preference.
 - **Fullscreen:** The button requests browser fullscreen. PlayEggball resizes its PIXI renderer on window resize, so the game uses the added viewport directly.
-- **Auto-click:** Enable it in the panel and hold Shift or the left mouse button over the game. It sends the pointer events used by PlayEggball's PIXI renderer. The default interval is 125 ms.
+- **Auto-click:** Enable it and hold the selected key or the left mouse button over the game. The key selector defaults to **None**, which means mouse-only and does not trigger on Shift. It sends the pointer events used by PlayEggball's PIXI renderer. The default interval is 125 ms.
 
-The controls are opt-in except the egg replacement and zoom, which start enabled. Settings are stored in this site's local storage.
+The controls are opt-in except the egg replacement and zoom, which start enabled. Upgrading from beta.3 keeps the other saved options and moves the zoom default to 1.25. Settings are stored in this site's local storage.
 
 ## Verification
 
-The tests use a mocked PlayEggball renderer and exercise the game's camera and sprite APIs. The beta.3 candidate was also checked in Chrome against a live practice game: egg texture replacement, full-field camera state, browser fullscreen, and generated pointer-down/up events were observed. A private 6v6 match was not reached because the fresh profile was still gated by the tutorial. Synthetic pointer events can be ignored by future game code.
+The tests use a mocked PlayEggball renderer and exercise the game's camera and sprite APIs. A Chrome smoke check against a live practice game verified the Eggball camera, egg texture replacement, fullscreen, and generated pointer-down/up events. A private 6v6 match was not reached because the fresh profile was gated by the tutorial. Synthetic pointer events can be ignored by future game code.
 
 Run the tests with:
 
