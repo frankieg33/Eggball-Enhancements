@@ -6,7 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const script = fs.readFileSync(path.join(__dirname, 'EggPro.playeggball.user.js'), 'utf8');
+const script = fs.readFileSync(path.join(__dirname, '..', 'Scripts', 'EggPro.playeggball.user.js'), 'utf8');
 
 function bootstrap(savedSettings = {}) {
     class CanvasContext {
@@ -122,4 +122,18 @@ test('hold-Shift auto click dispatches while active and stops on release', () =>
     for (const f of intervals.values()) f();
     assert.equal(canvasEvents.length, previous);
     assert.equal(document.documentElement.classList !== null, true);
+});
+test('metadata includes the /game route', () => {
+    assert.match(script, /@match\\s+https:\/\/playeggball\\.com\/game\\*/);
+});
+
+test('no fixed black viewport overlay remains', () => {
+    assert.doesNotMatch(script, /eggpro-full-viewport/);
+    assert.doesNotMatch(script, /background:\s*#101015/);
+});
+
+test('supplied egg is embedded and has camera-aware zoom', () => {
+    assert.match(script, /PERFECT_EGG_URL = "data:image\/png;base64,/);
+    assert.match(script, /function syncZoom\(\)/);
+    assert.match(script, /camera\.setZoom\(desired\)/);
 });
