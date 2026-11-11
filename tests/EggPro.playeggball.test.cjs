@@ -9,7 +9,7 @@ const vm = require('node:vm');
 const defaultScriptPath = path.join(__dirname, '..', 'Scripts', 'EggPro.playeggball.user.js');
 const script = fs.readFileSync(process.env.EGGPRO_SCRIPT_PATH || defaultScriptPath, 'utf8');
 
-function makeHarness(savedSettings = {}, legacySettings = null) {
+function makeHarness(savedSettings = {}, legacySettings = null, textureReady = true) {
     const documentEvents = new Map();
     const windowEvents = new Map();
     const intervals = new Map();
@@ -62,12 +62,24 @@ function makeHarness(savedSettings = {}, legacySettings = null) {
 
     const oldEggTexture = { width: 62, height: 78, baseTexture: { scaleMode: 0 } };
     const coloredEggTexture = { width: 62, height: 78, baseTexture: { scaleMode: 0 } };
-    const perfectTexture = { width: 23, height: 23, baseTexture: { scaleMode: 0, update() {} } };
+    let onTextureLoaded = null;
+    const perfectBaseTexture = {
+        width: textureReady ? 23 : 0,
+        height: textureReady ? 23 : 0,
+        valid: textureReady,
+        scaleMode: 0,
+        update() {},
+        once(event, callback) { if (event === 'loaded') onTextureLoaded = callback; },
+    };
+    const perfectTexture = { width: textureReady ? 23 : 0, height: textureReady ? 23 : 0, baseTexture: perfectBaseTexture };
     class Sprite {
         constructor(texture) {
-            this._texture = texture;
+            this._texture = null;
             this.scale = { x: 1, y: 1, set(x, y = x) { this.x = x; this.y = y; } };
             this.pivot = { x: 0, y: 0, set(x, y) { this.x = x; this.y = y; } };
+            this.width = 0;
+            this.height = 0;
+            this.texture = texture;
             this.width = texture.width;
             this.height = texture.height;
             this.destroyed = false;
@@ -145,11 +157,11 @@ function makeHarness(savedSettings = {}, legacySettings = null) {
     vm.runInNewContext(script, {
         window, document, localStorage: {
             getItem(key) {
-                if (key === 'eggpro.playeggball.settings.v2') return savedSettings === null ? null : JSON.stringify(savedSettings);
-                if (key === 'eggpro.playeggball.settings.v1') return legacySettings === null ? null : JSON.stringify(legacySettings);
+                if (key === 'eggpro.playeggball.settings.v3') return savedSettings === null ? null : JSON.stringify(savedSettings);
+                if (key === 'eggpro.playeggball.settings.v2') return legacySettings === null ? null : JSON.stringify(legacySettings);
                 return null;
             },
-            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v2') savedSettings = JSON.parse(value); },
+            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v3') savedSettings = JSON.parse(value); },
         },
         HTMLCanvasElement: Canvas,
         PointerEvent: MockEvent,
@@ -166,7 +178,19 @@ function makeHarness(savedSettings = {}, legacySettings = null) {
     const controls = panel.children.find(element => element.id === 'eggpro-controls');
     const control = text => controls.children.find(element => element.tagName === 'LABEL' && element.textContent.includes(text))
         .children.find(child => child.tagName === 'INPUT' || child.tagName === 'SELECT');
-    return { document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control, intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture, getStoredSettings: () => savedSettings };
+    return {
+        document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control,
+        intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture,
+        getStoredSettings: () => savedSettings,
+        markTextureReady() {
+            perfectTexture.width = 23;
+            perfectTexture.height = 23;
+            perfectBaseTexture.width = 23;
+            perfectBaseTexture.height = 23;
+            perfectBaseTexture.valid = true;
+            onTextureLoaded?.();
+        },
+    };
 }
 
 test('uses PlayEggball whole-field zoom and restores the prior camera state', () => {
@@ -174,7 +198,7 @@ test('uses PlayEggball whole-field zoom and restores the prior camera state', ()
     assert.equal(h.camera.overview, true);
     assert.equal(h.camera.pinned, true);
     assert.equal(h.camera.follow, true);
-    assert.equal(h.game.zoomLevel, 2 / 1.25);
+    assert.equal(h.game.zoomLevel, 2 / 2);
 
     const zoomToggle = h.control('Enable Eggball camera zoom');
     zoomToggle.checked = false;
@@ -192,6 +216,8 @@ test('replaces the live Eggball sprite API and existing held and loose eggs', ()
     assert.equal(created.texture, h.perfectTexture);
     assert.equal(created.width, 23);
     assert.equal(created.height, 23);
+    assert.equal(created.width / 2 - created.pivot.x * created.scale.x, 20);
+    assert.equal(created.height / 2 - created.pivot.y * created.scale.y, 20);
     assert.equal(h.perfectTexture.baseTexture.scaleMode, 1);
 
     for (const update of h.intervals.values()) update();
@@ -200,12 +226,29 @@ test('replaces the live Eggball sprite API and existing held and loose eggs', ()
     assert.match(h.status.textContent, /Egg: replaced/);
 });
 
+test('waits for the replacement image to load before resizing a new egg sprite', () => {
+    const h = makeHarness({}, null, false);
+    const created = h.window.ebEggSprite(20, 20);
+    assert.equal(created.texture, h.oldEggTexture);
+    assert.equal(created.width / 2 - created.pivot.x * created.scale.x, 20);
+    assert.equal(created.height / 2 - created.pivot.y * created.scale.y, 20);
+
+    h.markTextureReady();
+    assert.equal(created.texture, h.perfectTexture);
+    assert.equal(created.width, 23);
+    assert.equal(created.height, 23);
+    assert.equal(created.width / 2 - created.pivot.x * created.scale.x, 20);
+    assert.equal(created.height / 2 - created.pivot.y * created.scale.y, 20);
+});
+
 test('replaces a color-variant egg texture immediately, before the periodic sprite scan', () => {
     const h = makeHarness();
+    const pivot = { x: h.eggHolderSprite.pivot.x, y: h.eggHolderSprite.pivot.y };
     h.eggHolderSprite.texture = h.coloredEggTexture;
     assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
     assert.equal(h.eggHolderSprite.width, 23);
     assert.equal(h.eggHolderSprite.height, 23);
+    assert.deepEqual({ x: h.eggHolderSprite.pivot.x, y: h.eggHolderSprite.pivot.y }, pivot);
 
     const pixelPerfect = h.control('23px pixel-perfect egg');
     pixelPerfect.checked = false;
@@ -213,10 +256,13 @@ test('replaces a color-variant egg texture immediately, before the periodic spri
     assert.equal(h.eggHolderSprite.texture, h.coloredEggTexture);
 });
 
-test('accepts 1.25 zoom and uses None as the default auto-click key', () => {
+test('defaults zoom to 2, accepts values through 3, and uses None as the default auto-click key', () => {
+    const defaults = makeHarness();
+    assert.equal(defaults.control('Field zoom factor').value, '2');
+
     const h = makeHarness({ zoomFactor: 0.75 });
     const zoom = h.control('Field zoom factor');
-    assert.equal(zoom.max, '2');
+    assert.equal(zoom.max, '3');
     zoom.value = '1.25';
     h.game.view.camera.wholeFieldZoom = () => 1.04;
     zoom.fire('change');
@@ -225,6 +271,9 @@ test('accepts 1.25 zoom and uses None as the default auto-click key', () => {
     zoom.value = '2';
     zoom.fire('change');
     assert.equal(h.game.zoomLevel, 1.04 / 2);
+    zoom.value = '3';
+    zoom.fire('change');
+    assert.equal(h.game.zoomLevel, 1.04 / 3);
 
     const autoKey = h.control('Auto-click key');
     assert.equal(autoKey.value, 'none');
@@ -236,9 +285,9 @@ test('accepts 1.25 zoom and uses None as the default auto-click key', () => {
     assert.equal(h.canvasEvents.length, 0);
 });
 
-test('upgrades saved settings to the new 1.25 zoom default and None key', () => {
+test('upgrades saved settings to the new zoom default and preserves other options', () => {
     const h = makeHarness(null, { pixelPerfect: false, zoomFactor: 0.75, autoClick: true, clickIntervalMs: 250 });
-    assert.equal(h.game.zoomLevel, 2 / 1.25);
+    assert.equal(h.game.zoomLevel, 2 / 2);
     assert.equal(h.control('Auto-click key').value, 'none');
     assert.equal(h.control('23px pixel-perfect egg').checked, false);
     assert.equal(h.control('Auto-click while holding configured key').checked, true);

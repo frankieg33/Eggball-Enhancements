@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.4
+// @version      2.0.0-beta.5
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
 // @match        https://playeggball.com/play*
@@ -13,10 +13,10 @@
 (() => {
     'use strict';
 
-    const STORAGE_KEY = 'eggpro.playeggball.settings.v2';
-    const LEGACY_STORAGE_KEY = 'eggpro.playeggball.settings.v1';
+    const STORAGE_KEY = 'eggpro.playeggball.settings.v3';
+    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
     const DEFAULTS = {
-        pixelPerfect: true, zoomOut: true, zoomFactor: 1.25, autoClick: false,
+        pixelPerfect: true, zoomOut: true, zoomFactor: 2, autoClick: false,
         autoClickKey: 'none', clickIntervalMs: 125, overlayPosition: { left: 12, top: 50 },
     };
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
@@ -26,6 +26,7 @@
     let textureHookPrototype = null;
     let originalTextureDescriptor = null;
     let textureSetterWrapper = null;
+    let creatingEggSprite = 0;
 
     let panel = null;
     let status = null;
@@ -46,13 +47,14 @@
     function loadSettings() {
         try {
             const current = localStorage.getItem(STORAGE_KEY);
-            const legacy = current === null ? localStorage.getItem(LEGACY_STORAGE_KEY) : null;
+            const legacy = current === null
+                ? LEGACY_STORAGE_KEYS.map(key => localStorage.getItem(key)).find(value => value !== null) : null;
             const saved = JSON.parse(current || legacy || '{}');
             const loaded = {
                 pixelPerfect: typeof saved.pixelPerfect === 'boolean' ? saved.pixelPerfect : DEFAULTS.pixelPerfect,
                 zoomOut: typeof saved.zoomOut === 'boolean' ? saved.zoomOut : DEFAULTS.zoomOut,
                 zoomFactor: !current && legacy ? DEFAULTS.zoomFactor
-                    : Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 2
+                    : Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 3
                     ? saved.zoomFactor : DEFAULTS.zoomFactor,
                 autoClick: typeof saved.autoClick === 'boolean' ? saved.autoClick : DEFAULTS.autoClick,
                 autoClickKey: ['none', 'Shift', 'Space', 'Control', 'Alt'].includes(saved.autoClickKey)
@@ -86,12 +88,26 @@
             try { perfectEggTexture = pixi.Texture.from(PERFECT_EGG_URL); } catch { return null; }
         }
         const base = perfectEggTexture.baseTexture;
+        if (!base || !base.valid || perfectEggTexture.width !== 23 || perfectEggTexture.height !== 23) return null;
         const nearest = pixi.SCALE_MODES && pixi.SCALE_MODES.NEAREST;
         if (base && nearest !== undefined && base.scaleMode !== nearest) {
             base.scaleMode = nearest;
             if (typeof base.update === 'function') base.update();
         }
         return perfectEggTexture;
+    }
+
+    function replaceEggSpriteWhenReady(sprite) {
+        const texture = getPerfectEggTexture();
+        if (texture) return rememberAndReplaceEggSprite(sprite, texture);
+        const base = perfectEggTexture && perfectEggTexture.baseTexture;
+        if (!base || base.valid || typeof base.once !== 'function') return false;
+        base.once('loaded', () => {
+            if (!settings.pixelPerfect || sprite.destroyed) return;
+            const loadedTexture = getPerfectEggTexture();
+            if (loadedTexture) rememberAndReplaceEggSprite(sprite, loadedTexture);
+        });
+        return false;
     }
 
     function rememberAndReplaceEggSprite(sprite, texture) {
@@ -147,9 +163,13 @@
         textureHookPrototype = prototype;
         originalTextureDescriptor = descriptor;
         textureSetterWrapper = function (value) {
-            const replacement = settings.pixelPerfect && eggTextures.has(value) ? getPerfectEggTexture() : null;
+            const replacement = settings.pixelPerfect && !creatingEggSprite && eggTextures.has(value) ? getPerfectEggTexture() : null;
             if (!replacement || value === replacement) return descriptor.set.call(this, value);
             const previous = changedSprites.get(this);
+            if (previous) {
+                previous.texture = value;
+                return descriptor.set.call(this, replacement);
+            }
             const width = this.width;
             const height = this.height;
             const scaleX = this.scale.x;
@@ -158,8 +178,7 @@
             const pivotY = this.pivot.y;
             const centerX = width / 2 - pivotX * scaleX;
             const centerY = height / 2 - pivotY * scaleY;
-            if (previous) previous.texture = value;
-            else changedSprites.set(this, { texture: value, scaleX, scaleY, pivotX, pivotY });
+            changedSprites.set(this, { texture: value, scaleX, scaleY, pivotX, pivotY });
             descriptor.set.call(this, replacement);
             this.width = 23;
             this.height = 23;
@@ -181,9 +200,11 @@
         if (typeof current !== 'function' || current === eggSpriteWrapper) return;
         eggSpriteOriginal = current;
         eggSpriteWrapper = function (mx, my) {
-            const sprite = eggSpriteOriginal.call(this, mx, my);
-            const texture = getPerfectEggTexture();
-            if (texture) rememberAndReplaceEggSprite(sprite, texture);
+            let sprite;
+            creatingEggSprite++;
+            try { sprite = eggSpriteOriginal.call(this, mx, my); }
+            finally { creatingEggSprite--; }
+            replaceEggSpriteWhenReady(sprite);
             return sprite;
         };
         window.ebEggSprite = eggSpriteWrapper;
@@ -360,11 +381,11 @@
         const zoomLabel = document.createElement('label');
         zoomLabel.append(document.createTextNode('Field zoom factor '));
         const zoomInput = document.createElement('input');
-        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '2'; zoomInput.step = '0.05';
+        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '3'; zoomInput.step = '0.05';
         zoomInput.value = String(settings.zoomFactor);
         zoomInput.addEventListener('change', () => {
             const value = Number(zoomInput.value);
-            if (Number.isFinite(value) && value >= 0.5 && value <= 2) {
+            if (Number.isFinite(value) && value >= 0.5 && value <= 3) {
                 settings.zoomFactor = value;
                 saveSettings(); syncZoom(); updateStatus();
             } else zoomInput.value = String(settings.zoomFactor);
