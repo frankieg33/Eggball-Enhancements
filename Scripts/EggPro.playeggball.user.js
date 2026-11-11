@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.7
+// @version      2.0.0-beta.8
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
 // @match        https://playeggball.com/play*
@@ -13,10 +13,10 @@
 (() => {
     'use strict';
 
-    const STORAGE_KEY = 'eggpro.playeggball.settings.v4';
-    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v3', 'eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
+    const STORAGE_KEY = 'eggpro.playeggball.settings.v5';
+    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v4', 'eggpro.playeggball.settings.v3', 'eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
     const DEFAULTS = {
-        pixelPerfect: true, zoomOut: true, zoomFactor: 2, autoClick: false,
+        pixelPerfect: true, zoomOut: true, zoomFactor: 1.05, autoClick: false,
         autoClickKey: 'none', clickIntervalMs: 125, overlayPosition: { right: 12, top: 50 },
     };
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
@@ -37,12 +37,21 @@
     let eggSpriteWrapper = null;
     let perfectEggTexture = null;
     let pointer = null;
+    let lastThrowTarget = null;
+    let throwAtOriginal = null;
+    let throwAtWrapper = null;
     let gateKeyHeld = false;
     let mouseHeld = false;
     let clickTimer = null;
     let syncTimer = null;
     let dragState = null;
     let zoomStatus = 'waiting for Eggball camera';
+
+    for (const type of ['keydown', 'keyup']) {
+        window.addEventListener(type, event => {
+            if (panel && panel.contains(event.target)) event.stopImmediatePropagation();
+        }, true);
+    }
 
     function loadSettings() {
         try {
@@ -215,6 +224,19 @@
         window.ebEggSprite = eggSpriteWrapper;
     }
 
+    function syncThrowHook() {
+        const current = window.ebThrowAt;
+        if (typeof current !== 'function' || current === throwAtWrapper) return;
+        throwAtOriginal = current;
+        throwAtWrapper = function (target, ...args) {
+            if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) {
+                lastThrowTarget = { ...target };
+            }
+            return current.apply(this, [target, ...args]);
+        };
+        window.ebThrowAt = throwAtWrapper;
+    }
+
     function isEggTextureName(name) {
         return typeof name === 'string' && /(?:^|\/)egg-(?:field|pumpkin)(?:-cream)?\.png(?:[?#]|$)/i.test(name);
     }
@@ -294,6 +316,24 @@
 
     function dispatchClick() {
         if (!canAutoClick()) { stopClicking(); return; }
+        const game = window.eggball;
+        const field = game && game.view && game.view.field;
+        const globalPointer = game && game.view && game.view.painter &&
+            game.view.painter.events && game.view.painter.events.pointer && game.view.painter.events.pointer.global;
+        if (field && globalPointer && typeof field.toLocal === 'function' && typeof window.ebThrowAt === 'function') {
+            try {
+                const target = field.toLocal(globalPointer);
+                if (Number.isFinite(target.x) && Number.isFinite(target.y)) {
+                    lastThrowTarget = { x: target.x, y: target.y };
+                    window.ebThrowAt({ ...lastThrowTarget });
+                    return;
+                }
+            } catch { /* use the last known target or pointer fallback */ }
+        }
+        if (lastThrowTarget && typeof window.ebThrowAt === 'function') {
+            window.ebThrowAt({ ...lastThrowTarget });
+            return;
+        }
         const init = {
             bubbles: true, cancelable: true, composed: true,
             clientX: pointer.x, clientY: pointer.y,
@@ -377,15 +417,17 @@
         style.textContent = `
           #eggpro-panel[hidden],#eggpro-controls[hidden]{display:none!important}
           #eggpro-panel{position:fixed;top:50px;left:12px;right:auto;z-index:2147483647;display:flex;
-            flex-direction:column;gap:7px;min-width:230px;padding:12px;border:1px solid #777;
+            box-sizing:border-box;width:130px;max-width:calc(100vw - 24px);flex-direction:column;gap:7px;
+            padding:10px;border:1px solid #777;
             border-radius:9px;background:rgba(18,20,29,.94);color:#fff;font:12px/1.35 system-ui,sans-serif;
             box-shadow:0 6px 24px #0007}
-          #eggpro-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:move;touch-action:none}
+          #eggpro-panel header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:6px;cursor:move;touch-action:none}
           #eggpro-controls{display:flex;flex-direction:column;gap:7px}
-          #eggpro-panel label{display:block;cursor:pointer}
+          #eggpro-panel label{display:block;overflow-wrap:anywhere;cursor:pointer}
           #eggpro-panel input[type=number]{width:65px}
+          #eggpro-panel select{max-width:100%}
           #eggpro-panel button,#eggpro-panel input{font:inherit}
-          #eggpro-panel button{cursor:pointer}
+          #eggpro-panel button{max-width:100%;white-space:normal;cursor:pointer}
           #eggpro-panel small{color:#c8c8d0}
         `;
         document.head.append(style);
@@ -394,7 +436,7 @@
         const zoomLabel = document.createElement('label');
         zoomLabel.append(document.createTextNode('Field zoom factor '));
         const zoomInput = document.createElement('input');
-        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '3'; zoomInput.step = '0.05';
+        zoomInput.type = 'number'; zoomInput.min = '0.5'; zoomInput.max = '3'; zoomInput.step = '0.01';
         zoomInput.value = String(settings.zoomFactor);
         zoomInput.addEventListener('change', () => {
             const value = Number(zoomInput.value);
@@ -527,6 +569,7 @@
         window.addEventListener('pagehide', () => {
             stopClicking(); restoreGameZoom();
             clearInterval(syncTimer);
+            if (throwAtWrapper && window.ebThrowAt === throwAtWrapper) window.ebThrowAt = throwAtOriginal;
             if (eggSpriteWrapper && window.ebEggSprite === eggSpriteWrapper) window.ebEggSprite = eggSpriteOriginal;
             if (textureHookPrototype && Object.getOwnPropertyDescriptor(textureHookPrototype, 'texture')?.set === textureSetterWrapper) {
                 Object.defineProperty(textureHookPrototype, 'texture', originalTextureDescriptor);
@@ -540,6 +583,7 @@
         syncTimer = setInterval(() => {
             canvas = findGameCanvas();
             installEggSpriteHook();
+            syncThrowHook();
             const game = getGame();
             if (settings.pixelPerfect && game) syncExistingEggSprites(game);
             syncZoom(); updateStatus();

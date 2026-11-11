@@ -16,6 +16,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     const intervalDelays = new Map();
     let nextTimerId = 1;
     const canvasEvents = [];
+    const throwCalls = [];
     let detachedWidthReads = 0;
 
     class Element {
@@ -26,7 +27,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
             this.style = {};
             this.classList = { add() {}, remove() {}, toggle() {} };
             this.hidden = false;
-            this._offsetWidth = 240;
+            this._offsetWidth = 130;
             this._offsetHeight = 200;
             this.checked = false;
             this.value = '';
@@ -60,7 +61,9 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
                 right: left + this.offsetWidth, bottom: top + this.offsetHeight };
         }
         setPointerCapture() {}
-        contains(other) { return other === this; }
+        contains(other) {
+            return other === this || this.children.some(child => child === other || child.contains?.(other));
+        }
     }
 
     class Canvas extends Element {
@@ -117,6 +120,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     };
     const eggHolderSprite = makeEggSprite(20, 20);
     const looseEggSprite = makeEggSprite(20, 20);
+    const rendererPointerGlobal = { x: 0, y: 0 };
     const camera = { follow: true, overview: false, pinned: false };
     const canvas = new Canvas();
     const game = {
@@ -126,6 +130,8 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         bodies: { egg: { type: 'egg', look: looseEggSprite } },
         view: {
             canvas,
+            painter: { events: { pointer: { global: rendererPointerGlobal } } },
+            field: { toLocal(point) { return { x: point.x - 100, y: point.y - 50 }; } },
             camera: { wholeFieldZoom: () => 2, update() {} },
         },
     };
@@ -142,6 +148,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         eggball: game,
         PIXI,
         ebEggSprite: makeEggSprite,
+        ebThrowAt(target) { throwCalls.push(target); },
         addEventListener(type, handler) { windowEvents.set(type, handler); },
         innerWidth: 1200,
         innerHeight: 900,
@@ -174,11 +181,11 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     vm.runInNewContext(script, {
         window, document, localStorage: {
             getItem(key) {
-                if (key === 'eggpro.playeggball.settings.v4') return savedSettings === null ? null : JSON.stringify(savedSettings);
-                if (key === 'eggpro.playeggball.settings.v3') return legacySettings === null ? null : JSON.stringify(legacySettings);
+                if (key === 'eggpro.playeggball.settings.v5') return savedSettings === null ? null : JSON.stringify(savedSettings);
+                if (key === 'eggpro.playeggball.settings.v4') return legacySettings === null ? null : JSON.stringify(legacySettings);
                 return null;
             },
-            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v4') savedSettings = JSON.parse(value); },
+            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v5') savedSettings = JSON.parse(value); },
         },
         HTMLCanvasElement: Canvas,
         PointerEvent: MockEvent,
@@ -201,8 +208,9 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     const control = text => controls.children.find(element => element.tagName === 'LABEL' && element.textContent.includes(text))
         .children.find(child => child.tagName === 'INPUT' || child.tagName === 'SELECT');
     return {
-        document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control,
-        intervals, intervalDelays, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture,
+        document, window, windowEvents, game, camera, canvas, panel, controls, status: controls.children.at(-1), control,
+        intervals, intervalDelays, canvasEvents, throwCalls, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture,
+        rendererPointerGlobal,
         getDetachedWidthReads: () => detachedWidthReads,
         getStoredSettings: () => savedSettings,
         markTextureReady() {
@@ -221,7 +229,7 @@ test('uses PlayEggball whole-field zoom and restores the prior camera state', ()
     assert.equal(h.camera.overview, true);
     assert.equal(h.camera.pinned, true);
     assert.equal(h.camera.follow, true);
-    assert.equal(h.game.zoomLevel, 2 / 2);
+    assert.equal(h.game.zoomLevel, 2 / 1.05);
 
     const zoomToggle = h.control('Enable Eggball camera zoom');
     zoomToggle.checked = false;
@@ -290,9 +298,9 @@ test('prunes destroyed egg sprites from replacement tracking', () => {
     assert.match(h.status.textContent, /replaced \(2\)/);
 });
 
-test('defaults zoom to 2, accepts values through 3, and uses None as the default auto-click key', () => {
+test('defaults zoom to 1.05, accepts values through 3, and uses None as the default auto-click key', () => {
     const defaults = makeHarness();
-    assert.equal(defaults.control('Field zoom factor').value, '2');
+    assert.equal(defaults.control('Field zoom factor').value, '1.05');
 
     const h = makeHarness({ zoomFactor: 0.75 });
     const zoom = h.control('Field zoom factor');
@@ -324,7 +332,7 @@ test('upgrades saved settings to the new zoom default and preserves other option
         pixelPerfect: false, zoomFactor: 0.75, autoClick: true, clickIntervalMs: 250,
         overlayPosition: { left: 12, top: 50 },
     });
-    assert.equal(h.game.zoomLevel, 2 / 2);
+    assert.equal(h.game.zoomLevel, 2 / 1.05);
     assert.equal(h.control('Auto-click key').value, 'none');
     assert.equal(h.control('23px pixel-perfect egg').checked, false);
     assert.equal(h.control('Auto-click while holding configured key').checked, true);
@@ -338,7 +346,26 @@ test('preserves a user-dragged overlay position when migrating settings', () => 
     assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 92, top: 130 });
 });
 
-test('auto-click dispatches pointer events for its selected key and stops on release', () => {
+test('lets Backspace edit the zoom field and accepts 1.02', () => {
+    const h = makeHarness();
+    const zoom = h.control('Field zoom factor');
+    let stopped = false;
+    let prevented = false;
+    h.windowEvents.get('keydown')({
+        target: zoom,
+        stopImmediatePropagation() { stopped = true; },
+        preventDefault() { prevented = true; },
+    });
+    assert.equal(stopped, true);
+    assert.equal(prevented, false);
+
+    zoom.value = '1.02';
+    zoom.fire('change');
+    assert.equal(h.game.zoomLevel, 2 / 1.02);
+    assert.equal(zoom.step, '0.01');
+});
+
+test('cold-start auto-click uses the renderer world-space mouse target', () => {
     const h = makeHarness();
     const autoKey = h.control('Auto-click key');
     autoKey.value = 'Space';
@@ -346,24 +373,28 @@ test('auto-click dispatches pointer events for its selected key and stops on rel
     const autoToggle = h.control('Auto-click while holding configured key');
     autoToggle.checked = true;
     autoToggle.fire('change');
+    for (const update of h.intervals.values()) update();
+    h.rendererPointerGlobal.x = 500;
+    h.rendererPointerGlobal.y = 300;
     h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
     h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
-    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
-    assert.equal(h.canvasEvents[0].pointerType, 'mouse');
-    assert.equal(h.canvasEvents[0].buttons, 1);
-    assert.equal(h.canvasEvents[1].buttons, 0);
+    assert.deepEqual(h.throwCalls.map(({ x, y }) => ({ x, y })), [{ x: 400, y: 250 }]);
+    assert.deepEqual(h.canvasEvents, []);
 
     h.document.documentEvents.get('keyup')({ key: ' ', code: 'Space' });
-    const previousCount = h.canvasEvents.length;
+    const previousCount = h.throwCalls.length;
     for (const tick of h.intervals.values()) tick();
-    assert.equal(h.canvasEvents.length, previousCount);
+    assert.equal(h.throwCalls.length, previousCount);
 });
 
-test('mouse-hold auto-click waits a full interval before its first synthetic click', () => {
+test('mouse-hold auto-click waits one interval before its first repeat', () => {
     const h = makeHarness();
     const autoToggle = h.control('Auto-click while holding configured key');
     autoToggle.checked = true;
     autoToggle.fire('change');
+    for (const update of h.intervals.values()) update();
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
     h.canvasEvents.push({ type: 'pointerdown', isTrusted: true });
     h.document.documentEvents.get('mousedown')({
         isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
@@ -371,26 +402,30 @@ test('mouse-hold auto-click waits a full interval before its first synthetic cli
     assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown']);
     assert.equal([...h.intervalDelays.values()].at(-1), 125);
     [...h.intervals.values()].at(-1)();
-    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerdown', 'pointerup']);
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown']);
+    assert.deepEqual(h.throwCalls.map(({ x, y }) => ({ x, y })), [{ x: 120, y: 90 }]);
     h.document.documentEvents.get('mouseup')({ isTrusted: true, button: 0 });
-    const previousCount = h.canvasEvents.length;
+    const previousCount = h.throwCalls.length;
     for (const tick of h.intervals.values()) tick();
-    assert.equal(h.canvasEvents.length, previousCount);
+    assert.equal(h.throwCalls.length, previousCount);
 });
 
 test('auto-click stops when the pointer leaves the game canvas or the page is hidden', () => {
     const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
+    for (const update of h.intervals.values()) update();
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
     h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
     h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
-    assert.equal(h.canvasEvents.length, 2);
+    assert.equal(h.throwCalls.length, 1);
 
     h.document.elementFromPoint = () => h.panel;
     h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
-    assert.equal(h.canvasEvents.length, 2);
+    assert.equal(h.throwCalls.length, 1);
 
     h.document.visibilityState = 'hidden';
     for (const tick of h.intervals.values()) tick();
-    assert.equal(h.canvasEvents.length, 2);
+    assert.equal(h.throwCalls.length, 1);
 });
 
 test('fullscreen control requests fullscreen from the browser document', async () => {
@@ -400,9 +435,12 @@ test('fullscreen control requests fullscreen from the browser document', async (
     assert.equal(h.document.fullscreenElement, h.document.documentElement);
 });
 
-test('collapses and expands the overlay controls', () => {
+test('collapses controls without changing the panel width rule', () => {
     const h = makeHarness();
-    assert.match(h.document.head.children[0].textContent, /#eggpro-controls\[hidden\]\{display:none!important\}/);
+    const css = h.document.head.children[0].textContent;
+    assert.match(css, /box-sizing:border-box;width:130px/);
+    assert.match(css, /#eggpro-controls\[hidden\]\{display:none!important\}/);
+    assert.doesNotMatch(css, /#eggpro-panel[^}]*width:(?:8\d|9\d)px/);
     const toggle = h.panel.children[0].children[1];
     toggle.fire('click');
     assert.equal(h.controls.hidden, true);
@@ -416,8 +454,9 @@ test('drags the overlay and saves its position, clamped to the viewport', () => 
     const h = makeHarness();
     const header = h.panel.children[0];
     assert.equal(h.getDetachedWidthReads(), 0);
-    assert.equal(h.panel.style.left, '948px');
+    assert.equal(h.panel.style.left, '1058px');
     assert.equal(h.panel.style.top, '50px');
+    assert.match(h.document.head.children[0].textContent, /width:130px/);
     const initial = h.panel.getBoundingClientRect();
     header.fire('pointerdown', {
         button: 0, pointerId: 7, clientX: initial.left + 8, clientY: initial.top + 10, target: header, preventDefault() {},
@@ -432,10 +471,10 @@ test('drags the overlay and saves its position, clamped to the viewport', () => 
         button: 0, pointerId: 8, clientX: 100, clientY: 140, target: header, preventDefault() {},
     });
     h.document.documentEvents.get('pointermove')({ pointerId: 8, clientX: 5000, clientY: 5000 });
-    assert.equal(h.panel.style.left, '960px');
+    assert.equal(h.panel.style.left, '1070px');
     assert.equal(h.panel.style.top, '700px');
     h.document.documentEvents.get('pointerup')({ pointerId: 8 });
-    assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 960, top: 700 });
+    assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 1070, top: 700 });
 });
 
 test('userscript matches ranked play and game routes', () => {
