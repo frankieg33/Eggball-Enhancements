@@ -13,8 +13,10 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     const documentEvents = new Map();
     const windowEvents = new Map();
     const intervals = new Map();
+    const intervalDelays = new Map();
     let nextTimerId = 1;
     const canvasEvents = [];
+    let detachedWidthReads = 0;
 
     class Element {
         constructor(tagName) {
@@ -24,21 +26,33 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
             this.style = {};
             this.classList = { add() {}, remove() {}, toggle() {} };
             this.hidden = false;
-            this.offsetWidth = 240;
-            this.offsetHeight = 200;
+            this._offsetWidth = 240;
+            this._offsetHeight = 200;
             this.checked = false;
             this.value = '';
             this.textContent = '';
-            this.isConnected = true;
+            this.isConnected = false;
         }
         append(...children) {
             this.children.push(...children);
-            for (const child of children) child.parentElement = this;
+            const connect = element => {
+                element.isConnected = this.isConnected;
+                for (const child of element.children || []) connect(child);
+            };
+            for (const child of children) {
+                child.parentElement = this;
+                connect(child);
+            }
             this.textContent += children.map(child => child.textContent || '').join('');
         }
         appendChild(child) { this.append(child); }
         addEventListener(type, handler) { this.listeners.set(type, handler); }
         fire(type, event = {}) { return this.listeners.get(type)?.(event); }
+        get offsetWidth() {
+            if (!this.isConnected) detachedWidthReads++;
+            return this.isConnected ? this._offsetWidth : 0;
+        }
+        get offsetHeight() { return this.isConnected ? this._offsetHeight : 0; }
         getBoundingClientRect() {
             const left = Number.parseFloat(this.style.left) || 0;
             const top = Number.parseFloat(this.style.top) || 0;
@@ -52,6 +66,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     class Canvas extends Element {
         constructor() {
             super('canvas');
+            this.isConnected = true;
             this.width = 1200;
             this.height = 900;
             this.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 900 });
@@ -146,6 +161,8 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         querySelectorAll: selector => selector === 'canvas' ? [canvas] : [],
         elementFromPoint: () => canvas,
     };
+    document.body.isConnected = true;
+    document.head.isConnected = true;
     document.documentElement.requestFullscreen = async () => { document.fullscreenElement = document.documentElement; };
     document.exitFullscreen = async () => { document.fullscreenElement = null; };
 
@@ -167,8 +184,13 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         PointerEvent: MockEvent,
         MouseEvent: MockEvent,
         MutationObserver: MockMutationObserver,
-        setInterval(callback) { const id = nextTimerId++; intervals.set(id, callback); return id; },
-        clearInterval(id) { intervals.delete(id); },
+        setInterval(callback, delay) {
+            const id = nextTimerId++;
+            intervals.set(id, callback);
+            intervalDelays.set(id, delay);
+            return id;
+        },
+        clearInterval(id) { intervals.delete(id); intervalDelays.delete(id); },
         setTimeout() { return nextTimerId++; },
         clearTimeout() {},
     });
@@ -180,7 +202,8 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         .children.find(child => child.tagName === 'INPUT' || child.tagName === 'SELECT');
     return {
         document, window, game, camera, canvas, panel, controls, status: controls.children.at(-1), control,
-        intervals, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture,
+        intervals, intervalDelays, canvasEvents, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture,
+        getDetachedWidthReads: () => detachedWidthReads,
         getStoredSettings: () => savedSettings,
         markTextureReady() {
             perfectTexture.width = 23;
@@ -256,6 +279,17 @@ test('replaces a color-variant egg texture immediately, before the periodic spri
     assert.equal(h.eggHolderSprite.texture, h.coloredEggTexture);
 });
 
+test('prunes destroyed egg sprites from replacement tracking', () => {
+    const h = makeHarness();
+    const created = h.window.ebEggSprite(20, 20);
+    for (const update of h.intervals.values()) update();
+    assert.match(h.status.textContent, /replaced \(3\)/);
+
+    created.destroyed = true;
+    for (const update of h.intervals.values()) update();
+    assert.match(h.status.textContent, /replaced \(2\)/);
+});
+
 test('defaults zoom to 2, accepts values through 3, and uses None as the default auto-click key', () => {
     const defaults = makeHarness();
     assert.equal(defaults.control('Field zoom factor').value, '2');
@@ -325,15 +359,19 @@ test('auto-click dispatches pointer events for its selected key and stops on rel
     assert.equal(h.canvasEvents.length, previousCount);
 });
 
-test('None keeps mouse hold as the auto-click trigger', () => {
+test('mouse-hold auto-click waits a full interval before its first synthetic click', () => {
     const h = makeHarness();
     const autoToggle = h.control('Auto-click while holding configured key');
     autoToggle.checked = true;
     autoToggle.fire('change');
+    h.canvasEvents.push({ type: 'pointerdown', isTrusted: true });
     h.document.documentEvents.get('mousedown')({
         isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
     });
-    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown']);
+    assert.equal([...h.intervalDelays.values()].at(-1), 125);
+    [...h.intervals.values()].at(-1)();
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerdown', 'pointerup']);
     h.document.documentEvents.get('mouseup')({ isTrusted: true, button: 0 });
     const previousCount = h.canvasEvents.length;
     for (const tick of h.intervals.values()) tick();
@@ -377,6 +415,7 @@ test('collapses and expands the overlay controls', () => {
 test('drags the overlay and saves its position, clamped to the viewport', () => {
     const h = makeHarness();
     const header = h.panel.children[0];
+    assert.equal(h.getDetachedWidthReads(), 0);
     assert.equal(h.panel.style.left, '948px');
     assert.equal(h.panel.style.top, '50px');
     const initial = h.panel.getBoundingClientRect();

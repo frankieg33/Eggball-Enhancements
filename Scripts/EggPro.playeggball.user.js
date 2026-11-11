@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.6
+// @version      2.0.0-beta.7
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
 // @match        https://playeggball.com/play*
@@ -220,6 +220,9 @@
     }
 
     function syncExistingEggSprites(game) {
+        for (const [sprite] of changedSprites) {
+            if (sprite.destroyed) changedSprites.delete(sprite);
+        }
         if (!eggTextures.size) return;
         const replacement = getPerfectEggTexture();
         if (!replacement || !eggTextures.size) return;
@@ -300,10 +303,10 @@
         canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
     }
 
-    function syncClicking() {
+    function syncClicking(deferInitial = false) {
         if (!canAutoClick()) { stopClicking(); return; }
         if (clickTimer === null) {
-            dispatchClick();
+            if (!deferInitial) dispatchClick();
             if (canAutoClick()) clickTimer = setInterval(dispatchClick, settings.clickIntervalMs);
         }
     }
@@ -467,6 +470,7 @@
             intervalLabel,
             status);
         panel.append(header, controls);
+        document.body.append(panel);
         applyOverlayPosition(settings.overlayPosition, settings.overlayPosition.top);
         panel.addEventListener('pointerdown', event => event.stopPropagation());
         panel.addEventListener('mousedown', event => event.stopPropagation());
@@ -477,8 +481,6 @@
             if (header.setPointerCapture && event.pointerId !== undefined) header.setPointerCapture(event.pointerId);
             event.preventDefault();
         });
-        document.body.append(panel);
-
         document.addEventListener('pointermove', event => {
             if (dragState && (event.pointerId === undefined || event.pointerId === dragState.pointerId)) {
                 applyOverlayPosition(event.clientX - dragState.offsetX, event.clientY - dragState.offsetY);
@@ -504,7 +506,7 @@
         document.addEventListener('mousedown', event => {
             if (event.isTrusted && event.button === 0 && event.target === canvas) {
                 pointer = { x: event.clientX, y: event.clientY };
-                mouseHeld = true; syncClicking();
+                mouseHeld = true; syncClicking(!gateKeyHeld);
             }
         }, true);
         document.addEventListener('mouseup', event => {
