@@ -43,16 +43,25 @@
     let syncTimer = null;
     let dragState = null;
     let zoomStatus = 'waiting for Eggball camera';
+    const panelPressedKeys = new Set();
 
     for (const type of ['keydown', 'keyup']) {
         window.addEventListener(type, event => {
-            if (panel && panel.contains(event.target)) {
-                if (type === 'keyup' && isAutoClickKey(event)) {
-                    gateKeyHeld = false;
-                    syncClicking();
+            const keyId = event.code || event.key;
+            const insidePanel = panel && panel.contains(event.target);
+            if (type === 'keydown') {
+                if (insidePanel) {
+                    if (keyId && !event.repeat) panelPressedKeys.add(keyId);
+                    event.stopImmediatePropagation();
                 }
-                event.stopImmediatePropagation();
+                return;
             }
+            const panelOwnedKey = keyId && panelPressedKeys.delete(keyId);
+            if (isAutoClickKey(event)) {
+                gateKeyHeld = false;
+                syncClicking();
+            }
+            if (panelOwnedKey) event.stopImmediatePropagation();
         }, true);
     }
 
@@ -576,9 +585,9 @@
         document.addEventListener('mouseup', event => {
             if (event.isTrusted && event.button === 0) { mouseHeld = false; syncClicking(); }
         }, true);
-        window.addEventListener('blur', () => { gateKeyHeld = false; mouseHeld = false; stopClicking(); });
+        window.addEventListener('blur', () => { gateKeyHeld = false; mouseHeld = false; panelPressedKeys.clear(); stopClicking(); });
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') { gateKeyHeld = false; mouseHeld = false; stopClicking(); }
+            if (document.visibilityState === 'hidden') { gateKeyHeld = false; mouseHeld = false; panelPressedKeys.clear(); stopClicking(); }
         });
         document.addEventListener('fullscreenchange', () => {
             if (fullscreenButton) fullscreenButton.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen';
@@ -592,6 +601,11 @@
             if (event.persisted) resumeGameSync();
         });
         window.addEventListener('pagehide', () => {
+            gateKeyHeld = false;
+            mouseHeld = false;
+            pointer = null;
+            dragState = null;
+            panelPressedKeys.clear();
             stopClicking(); restoreGameZoom();
             clearInterval(syncTimer);
             syncTimer = null;
