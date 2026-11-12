@@ -274,12 +274,15 @@ test('waits for the replacement image to load before resizing a new egg sprite',
 
 test('replaces a color-variant egg texture immediately, before the periodic sprite scan', () => {
     const h = makeHarness();
-    const pivot = { x: h.eggHolderSprite.pivot.x, y: h.eggHolderSprite.pivot.y };
+    h.eggHolderSprite.width = 46;
+    h.eggHolderSprite.height = 38;
+    h.eggHolderSprite.pivot.set(0, 0);
     h.eggHolderSprite.texture = h.coloredEggTexture;
     assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
     assert.equal(h.eggHolderSprite.width, 23);
     assert.equal(h.eggHolderSprite.height, 23);
-    assert.deepEqual({ x: h.eggHolderSprite.pivot.x, y: h.eggHolderSprite.pivot.y }, pivot);
+    assert.equal(h.eggHolderSprite.width / 2 - h.eggHolderSprite.pivot.x * h.eggHolderSprite.scale.x, 20);
+    assert.equal(h.eggHolderSprite.height / 2 - h.eggHolderSprite.pivot.y * h.eggHolderSprite.scale.y, 20);
 
     const pixelPerfect = h.control('23px pixel-perfect egg');
     pixelPerfect.checked = false;

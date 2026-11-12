@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.8
+// @version      2.0.0-beta.9
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
 // @match        https://playeggball.com/play*
@@ -126,21 +126,28 @@
 
     function rememberAndReplaceEggSprite(sprite, texture) {
         if (!sprite || !sprite.texture || sprite.destroyed) return false;
-        const previous = changedSprites.get(sprite);
-        const width = sprite.width;
-        const height = sprite.height;
-        const scaleX = sprite.scale.x;
-        const scaleY = sprite.scale.y;
-        const pivotX = sprite.pivot.x;
-        const pivotY = sprite.pivot.y;
-        const centerX = width / 2 - pivotX * scaleX;
-        const centerY = height / 2 - pivotY * scaleY;
-        if (!previous) changedSprites.set(sprite, { texture: sprite.texture, scaleX, scaleY, pivotX, pivotY });
+        let previous = changedSprites.get(sprite);
+        if (!previous) {
+            const scaleX = sprite.scale.x;
+            const scaleY = sprite.scale.y;
+            const pivotX = sprite.pivot.x;
+            const pivotY = sprite.pivot.y;
+            previous = {
+                texture: sprite.texture, scaleX, scaleY, pivotX, pivotY,
+                centerX: sprite.width / 2 - pivotX * scaleX,
+                centerY: sprite.height / 2 - pivotY * scaleY,
+            };
+            changedSprites.set(sprite, previous);
+        }
         sprite.texture = texture;
+        applyPerfectEggGeometry(sprite, previous);
+        return true;
+    }
+
+    function applyPerfectEggGeometry(sprite, original) {
         sprite.width = 23;
         sprite.height = 23;
-        sprite.pivot.set(11.5 - centerX, 11.5 - centerY);
-        return true;
+        sprite.pivot.set(11.5 - original.centerX, 11.5 - original.centerY);
     }
 
     function restoreEggSprites() {
@@ -182,7 +189,9 @@
             const previous = changedSprites.get(this);
             if (previous) {
                 previous.texture = value;
-                return descriptor.set.call(this, replacement);
+                descriptor.set.call(this, replacement);
+                applyPerfectEggGeometry(this, previous);
+                return;
             }
             const width = this.width;
             const height = this.height;
@@ -190,13 +199,14 @@
             const scaleY = this.scale.y;
             const pivotX = this.pivot.x;
             const pivotY = this.pivot.y;
-            const centerX = width / 2 - pivotX * scaleX;
-            const centerY = height / 2 - pivotY * scaleY;
-            changedSprites.set(this, { texture: value, scaleX, scaleY, pivotX, pivotY });
+            const original = {
+                texture: value, scaleX, scaleY, pivotX, pivotY,
+                centerX: width / 2 - pivotX * scaleX,
+                centerY: height / 2 - pivotY * scaleY,
+            };
+            changedSprites.set(this, original);
             descriptor.set.call(this, replacement);
-            this.width = 23;
-            this.height = 23;
-            this.pivot.set(11.5 - centerX, 11.5 - centerY);
+            applyPerfectEggGeometry(this, original);
         };
         Object.defineProperty(prototype, 'texture', { ...descriptor, set: textureSetterWrapper });
     }
