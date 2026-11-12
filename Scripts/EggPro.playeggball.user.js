@@ -12,11 +12,12 @@
 (() => {
     'use strict';
 
-    const STORAGE_KEY = 'eggpro.playeggball.settings.v5';
-    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v4', 'eggpro.playeggball.settings.v3', 'eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
+    const STORAGE_KEY = 'eggpro.playeggball.settings.v6';
+    const LEGACY_STORAGE_KEYS = ['eggpro.playeggball.settings.v5', 'eggpro.playeggball.settings.v4', 'eggpro.playeggball.settings.v3', 'eggpro.playeggball.settings.v2', 'eggpro.playeggball.settings.v1'];
     const DEFAULTS = {
-        pixelPerfect: true, zoomOut: true, zoomFactor: 1.05, autoClick: false,
+        pixelPerfect: true, zoomOut: true, zoomFactor: 1.3, autoClick: false,
         autoClickKey: 'none', clickIntervalMs: 125, overlayPosition: { right: 12, top: 50 },
+        panelCollapsed: false,
     };
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
     const settings = loadSettings();
@@ -61,8 +62,7 @@
             const loaded = {
                 pixelPerfect: typeof saved.pixelPerfect === 'boolean' ? saved.pixelPerfect : DEFAULTS.pixelPerfect,
                 zoomOut: typeof saved.zoomOut === 'boolean' ? saved.zoomOut : DEFAULTS.zoomOut,
-                zoomFactor: !current && legacy ? DEFAULTS.zoomFactor
-                    : Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 3
+                zoomFactor: Number.isFinite(saved.zoomFactor) && saved.zoomFactor >= 0.5 && saved.zoomFactor <= 3
                     ? saved.zoomFactor : DEFAULTS.zoomFactor,
                 autoClick: typeof saved.autoClick === 'boolean' ? saved.autoClick : DEFAULTS.autoClick,
                 autoClickKey: ['none', 'Shift', 'Space', 'Control', 'Alt'].includes(saved.autoClickKey)
@@ -77,6 +77,7 @@
                         ? { left: Math.max(0, saved.overlayPosition.left), top: Math.max(0, saved.overlayPosition.top) }
                         : { right: Math.max(0, saved.overlayPosition.right), top: Math.max(0, saved.overlayPosition.top) }
                     : { ...DEFAULTS.overlayPosition },
+                panelCollapsed: typeof saved.panelCollapsed === 'boolean' ? saved.panelCollapsed : DEFAULTS.panelCollapsed,
             };
             if (!current && legacy) localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
             return loaded;
@@ -502,12 +503,15 @@
         title.textContent = 'EggPro 2.0';
         const collapseButton = document.createElement('button');
         collapseButton.type = 'button';
-        collapseButton.textContent = 'Collapse';
         const controls = document.createElement('div');
         controls.id = 'eggpro-controls';
+        controls.hidden = settings.panelCollapsed;
+        collapseButton.textContent = settings.panelCollapsed ? 'Expand' : 'Collapse';
         collapseButton.addEventListener('click', () => {
-            controls.hidden = !controls.hidden;
-            collapseButton.textContent = controls.hidden ? 'Expand' : 'Collapse';
+            settings.panelCollapsed = !controls.hidden;
+            controls.hidden = settings.panelCollapsed;
+            collapseButton.textContent = settings.panelCollapsed ? 'Expand' : 'Collapse';
+            saveSettings();
             applyOverlayPosition(settings.overlayPosition, settings.overlayPosition.top);
         });
         header.append(title, collapseButton);

@@ -181,11 +181,11 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     vm.runInNewContext(script, {
         window, document, localStorage: {
             getItem(key) {
-                if (key === 'eggpro.playeggball.settings.v5') return savedSettings === null ? null : JSON.stringify(savedSettings);
-                if (key === 'eggpro.playeggball.settings.v4') return legacySettings === null ? null : JSON.stringify(legacySettings);
+                if (key === 'eggpro.playeggball.settings.v6') return savedSettings === null ? null : JSON.stringify(savedSettings);
+                if (key === 'eggpro.playeggball.settings.v5') return legacySettings === null ? null : JSON.stringify(legacySettings);
                 return null;
             },
-            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v5') savedSettings = JSON.parse(value); },
+            setItem(key, value) { if (key === 'eggpro.playeggball.settings.v6') savedSettings = JSON.parse(value); },
         },
         HTMLCanvasElement: Canvas,
         PointerEvent: MockEvent,
@@ -229,7 +229,7 @@ test('uses PlayEggball whole-field zoom and restores the prior camera state', ()
     assert.equal(h.camera.overview, true);
     assert.equal(h.camera.pinned, true);
     assert.equal(h.camera.follow, true);
-    assert.equal(h.game.zoomLevel, 2 / 1.05);
+    assert.equal(h.game.zoomLevel, 2 / 1.3);
 
     const zoomToggle = h.control('Enable Eggball camera zoom');
     zoomToggle.checked = false;
@@ -301,9 +301,9 @@ test('prunes destroyed egg sprites from replacement tracking', () => {
     assert.match(h.status.textContent, /replaced \(2\)/);
 });
 
-test('defaults zoom to 1.05, accepts values through 3, and uses None as the default auto-click key', () => {
+test('defaults zoom to 1.3, accepts values through 3, and uses None as the default auto-click key', () => {
     const defaults = makeHarness();
-    assert.equal(defaults.control('Field zoom factor').value, '1.05');
+    assert.equal(defaults.control('Field zoom factor').value, '1.3');
 
     const h = makeHarness({ zoomFactor: 0.75 });
     const zoom = h.control('Field zoom factor');
@@ -330,16 +330,57 @@ test('defaults zoom to 1.05, accepts values through 3, and uses None as the defa
     assert.equal(h.canvasEvents.length, 0);
 });
 
-test('upgrades saved settings to the new zoom default and preserves other options', () => {
+test('migrates saved settings without resetting the selected zoom', () => {
     const h = makeHarness(null, {
         pixelPerfect: false, zoomFactor: 0.75, autoClick: true, clickIntervalMs: 250,
         overlayPosition: { left: 12, top: 50 },
     });
-    assert.equal(h.game.zoomLevel, 2 / 1.05);
+    assert.equal(h.game.zoomLevel, 2 / 0.75);
+    assert.equal(h.getStoredSettings().zoomFactor, 0.75);
     assert.equal(h.control('Auto-click key').value, 'none');
     assert.equal(h.control('23px pixel-perfect egg').checked, false);
     assert.equal(h.control('Auto-click while holding configured key').checked, true);
     assert.deepEqual(h.getStoredSettings().overlayPosition, { right: 12, top: 50 });
+});
+
+test('keeps changed controls and collapsed state after reload', () => {
+    const h = makeHarness();
+    h.control('Field zoom factor').value = '1.45';
+    h.control('Field zoom factor').fire('change');
+    h.control('Auto-click interval').value = '250';
+    h.control('Auto-click interval').fire('change');
+    const egg = h.control('23px pixel-perfect egg');
+    egg.checked = false;
+    egg.fire('change');
+    const zoomToggle = h.control('Enable Eggball camera zoom');
+    zoomToggle.checked = false;
+    zoomToggle.fire('change');
+    const autoKey = h.control('Auto-click key');
+    autoKey.value = 'Space';
+    autoKey.fire('change');
+    const autoClick = h.control('Auto-click while holding configured key');
+    autoClick.checked = true;
+    autoClick.fire('change');
+    h.panel.children[0].children[1].fire('click');
+
+    const saved = h.getStoredSettings();
+    assert.equal(saved.zoomFactor, 1.45);
+    assert.equal(saved.clickIntervalMs, 250);
+    assert.equal(saved.pixelPerfect, false);
+    assert.equal(saved.zoomOut, false);
+    assert.equal(saved.autoClickKey, 'Space');
+    assert.equal(saved.autoClick, true);
+    assert.equal(saved.panelCollapsed, true);
+
+    const reloaded = makeHarness(saved);
+    assert.equal(reloaded.control('Field zoom factor').value, '1.45');
+    assert.equal(reloaded.control('Auto-click interval').value, '250');
+    assert.equal(reloaded.control('23px pixel-perfect egg').checked, false);
+    assert.equal(reloaded.control('Enable Eggball camera zoom').checked, false);
+    assert.equal(reloaded.control('Auto-click key').value, 'Space');
+    assert.equal(reloaded.control('Auto-click while holding configured key').checked, true);
+    assert.equal(reloaded.controls.hidden, true);
+    assert.equal(reloaded.panel.children[0].children[1].textContent, 'Expand');
 });
 
 test('preserves a user-dragged overlay position when migrating settings', () => {
