@@ -37,9 +37,6 @@
     let eggSpriteWrapper = null;
     let perfectEggTexture = null;
     let pointer = null;
-    let lastThrowTarget = null;
-    let throwAtOriginal = null;
-    let throwAtWrapper = null;
     let gateKeyHeld = false;
     let mouseHeld = false;
     let clickTimer = null;
@@ -49,7 +46,13 @@
 
     for (const type of ['keydown', 'keyup']) {
         window.addEventListener(type, event => {
-            if (panel && panel.contains(event.target)) event.stopImmediatePropagation();
+            if (panel && panel.contains(event.target)) {
+                if (type === 'keyup' && isAutoClickKey(event)) {
+                    gateKeyHeld = false;
+                    syncClicking();
+                }
+                event.stopImmediatePropagation();
+            }
         }, true);
     }
 
@@ -234,19 +237,6 @@
         window.ebEggSprite = eggSpriteWrapper;
     }
 
-    function syncThrowHook() {
-        const current = window.ebThrowAt;
-        if (typeof current !== 'function' || current === throwAtWrapper) return;
-        throwAtOriginal = current;
-        throwAtWrapper = function (target, ...args) {
-            if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) {
-                lastThrowTarget = { ...target };
-            }
-            return current.apply(this, [target, ...args]);
-        };
-        window.ebThrowAt = throwAtWrapper;
-    }
-
     function isEggTextureName(name) {
         return typeof name === 'string' && /(?:^|\/)egg-(?:field|pumpkin)(?:-cream)?\.png(?:[?#]|$)/i.test(name);
     }
@@ -334,15 +324,10 @@
             try {
                 const target = field.toLocal(globalPointer);
                 if (Number.isFinite(target.x) && Number.isFinite(target.y)) {
-                    lastThrowTarget = { x: target.x, y: target.y };
-                    window.ebThrowAt({ ...lastThrowTarget });
+                    window.ebThrowAt({ x: target.x, y: target.y });
                     return;
                 }
-            } catch { /* use the last known target or pointer fallback */ }
-        }
-        if (lastThrowTarget && typeof window.ebThrowAt === 'function') {
-            window.ebThrowAt({ ...lastThrowTarget });
-            return;
+            } catch { /* fall back to synthetic pointer events */ }
         }
         const init = {
             bubbles: true, cancelable: true, composed: true,
@@ -359,6 +344,21 @@
             if (!deferInitial) dispatchClick();
             if (canAutoClick()) clickTimer = setInterval(dispatchClick, settings.clickIntervalMs);
         }
+    }
+
+    function syncGameState() {
+        canvas = findGameCanvas();
+        installEggSpriteHook();
+        const game = getGame();
+        if (settings.pixelPerfect && game) syncExistingEggSprites(game);
+        syncZoom();
+        updateStatus();
+    }
+
+    function resumeGameSync() {
+        if (syncTimer !== null) clearInterval(syncTimer);
+        syncTimer = setInterval(syncGameState, 250);
+        syncGameState();
     }
 
     function updateStatus() {
@@ -541,7 +541,10 @@
                 applyOverlayPosition(event.clientX - dragState.offsetX, event.clientY - dragState.offsetY);
             }
             pointer = { x: event.clientX, y: event.clientY };
-            if (gateKeyHeld || mouseHeld) syncClicking();
+            const releasedMouse = mouseHeld && (!event.pointerType || event.pointerType === 'mouse') &&
+                typeof event.buttons === 'number' && (event.buttons & 1) === 0;
+            if (releasedMouse) mouseHeld = false;
+            if (gateKeyHeld || mouseHeld || releasedMouse) syncClicking();
         }, { passive: true, capture: true });
         const finishDrag = event => {
             if (!dragState || (event.pointerId !== undefined && event.pointerId !== dragState.pointerId)) return;
@@ -549,7 +552,13 @@
             saveOverlayPosition();
         };
         document.addEventListener('pointerup', finishDrag, true);
-        document.addEventListener('pointercancel', finishDrag, true);
+        document.addEventListener('pointercancel', event => {
+            finishDrag(event);
+            if (mouseHeld && (!event.pointerType || event.pointerType === 'mouse')) {
+                mouseHeld = false;
+                syncClicking();
+            }
+        }, true);
         document.addEventListener('keydown', event => {
             if (isAutoClickKey(event) && !event.repeat && !isTyping()) {
                 gateKeyHeld = true; syncClicking();
@@ -579,10 +588,13 @@
             applyOverlayPosition(settings.overlayPosition, settings.overlayPosition.top);
             setTimeout(syncZoom, 100);
         });
+        window.addEventListener('pageshow', event => {
+            if (event.persisted) resumeGameSync();
+        });
         window.addEventListener('pagehide', () => {
             stopClicking(); restoreGameZoom();
             clearInterval(syncTimer);
-            if (throwAtWrapper && window.ebThrowAt === throwAtWrapper) window.ebThrowAt = throwAtOriginal;
+            syncTimer = null;
             if (eggSpriteWrapper && window.ebEggSprite === eggSpriteWrapper) window.ebEggSprite = eggSpriteOriginal;
             if (textureHookPrototype && Object.getOwnPropertyDescriptor(textureHookPrototype, 'texture')?.set === textureSetterWrapper) {
                 Object.defineProperty(textureHookPrototype, 'texture', originalTextureDescriptor);
@@ -591,21 +603,9 @@
             originalTextureDescriptor = null;
             textureSetterWrapper = null;
             restoreEggSprites();
-        }, { once: true });
+        });
 
-        syncTimer = setInterval(() => {
-            canvas = findGameCanvas();
-            installEggSpriteHook();
-            syncThrowHook();
-            const game = getGame();
-            if (settings.pixelPerfect && game) syncExistingEggSprites(game);
-            syncZoom(); updateStatus();
-        }, 250);
-        canvas = findGameCanvas();
-        installEggSpriteHook();
-        const game = getGame();
-        if (settings.pixelPerfect && game) syncExistingEggSprites(game);
-        syncZoom(); updateStatus();
+        resumeGameSync();
     }
 
     function isTyping() {

@@ -526,3 +526,83 @@ test('userscript is version 2.0 and matches only the game route', () => {
     assert.doesNotMatch(script, /@match\s+https:\/\/playeggball\.com\/play\*/);
     assert.match(script, /@match\s+https:\/\/playeggball\.com\/game\*/);
 });
+
+test('keyup swallowed by the panel releases the auto-click key', () => {
+    const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
+    assert.equal(h.throwCalls.length, 1);
+
+    let stopped = false;
+    h.windowEvents.get('keyup')({
+        target: h.control('Field zoom factor'), key: ' ', code: 'Space',
+        stopImmediatePropagation() { stopped = true; },
+    });
+    assert.equal(stopped, true);
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 1);
+});
+
+test('mouse release outside the document cannot restart auto-click on re-entry', () => {
+    const h = makeHarness({ autoClick: true });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90, pointerType: 'mouse', buttons: 0 });
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.equal(h.intervals.size, 2);
+    h.document.documentEvents.get('pointermove')({ clientX: -10, clientY: 90, pointerType: 'mouse', buttons: 1 });
+    assert.equal(h.intervals.size, 1);
+
+    // No document mouseup fires when the button is released outside the page.
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90, pointerType: 'mouse', buttons: 0 });
+    assert.equal(h.intervals.size, 1);
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 0);
+});
+
+test('pointer cancellation ends the mouse-hold auto-click timer', () => {
+    const h = makeHarness({ autoClick: true });
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.equal(h.intervals.size, 2);
+    h.document.documentEvents.get('pointercancel')({ pointerType: 'mouse' });
+    assert.equal(h.intervals.size, 1);
+});
+
+test('failed coordinate conversion never replays a stale throw target', () => {
+    const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
+    assert.deepEqual(h.throwCalls.map(({ x, y }) => ({ x, y })), [{ x: 120, y: 90 }]);
+
+    h.game.view.field.toLocal = () => { throw new Error('transformation unavailable'); };
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 1);
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
+});
+
+test('back-forward cache restoration reattaches sprite and camera hooks', () => {
+    const h = makeHarness();
+    assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+    assert.equal(h.camera.overview, true);
+    assert.equal(h.intervals.size, 1);
+
+    for (let i = 0; i < 2; i++) {
+        h.windowEvents.get('pagehide')();
+        assert.equal(h.eggHolderSprite.texture, h.oldEggTexture);
+        assert.equal(h.camera.overview, false);
+        assert.equal(h.intervals.size, 0);
+
+        h.windowEvents.get('pageshow')({ persisted: true });
+        assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+        assert.equal(h.camera.overview, true);
+        assert.equal(h.intervals.size, 1);
+    }
+});
