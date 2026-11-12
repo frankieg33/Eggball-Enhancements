@@ -1,10 +1,9 @@
 // ==UserScript==
 // @name         EggPro for PlayEggball
 // @namespace    https://github.com/frankieg33/Eggball-Enhancements
-// @version      2.0.0-beta.9
+// @version      2.0
 // @description  Pixel-perfect egg, full-field camera zoom, fullscreen, and hold-to-auto-click.
 // @author       frankieg33
-// @match        https://playeggball.com/play*
 // @match        https://playeggball.com/game*
 // @run-at       document-start
 // @grant        none

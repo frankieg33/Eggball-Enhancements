@@ -480,7 +480,8 @@ test('drags the overlay and saves its position, clamped to the viewport', () => 
     assert.deepEqual(h.getStoredSettings().overlayPosition, { left: 1070, top: 700 });
 });
 
-test('userscript matches ranked play and game routes', () => {
-    assert.match(script, /@match\s+https:\/\/playeggball\.com\/play\*/);
+test('userscript is version 2.0 and matches only the game route', () => {
+    assert.match(script, /@version\s+2\.0(?:\s|$)/);
+    assert.doesNotMatch(script, /@match\s+https:\/\/playeggball\.com\/play\*/);
     assert.match(script, /@match\s+https:\/\/playeggball\.com\/game\*/);
 });

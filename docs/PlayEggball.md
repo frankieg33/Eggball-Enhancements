@@ -1,6 +1,6 @@
-# EggPro for PlayEggball (beta)
+# EggPro for PlayEggball 2.0
 
-Standalone Tampermonkey userscript for `https://playeggball.com/play` and `https://playeggball.com/game`. It does not replace the TagPro-specific `Scripts/EggPro.user.js`.
+Standalone Tampermonkey userscript for `https://playeggball.com/game`. It does not replace the TagPro-specific `Scripts/EggPro.user.js`.
 
 ## Install
 
