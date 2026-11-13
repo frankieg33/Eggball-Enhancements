@@ -543,3 +543,188 @@ test('userscript is version 2.0 and matches only the game route', () => {
     assert.doesNotMatch(script, /@match\s+https:\/\/playeggball\.com\/play\*/);
     assert.match(script, /@match\s+https:\/\/playeggball\.com\/game\*/);
 });
+
+test('game-started auto-click key release reaches game handlers after focus moves into panel', () => {
+    const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.windowEvents.get('keydown')({
+        target: h.canvas, key: ' ', code: 'Space', repeat: false,
+        stopImmediatePropagation() { assert.fail('game keydown blocked'); },
+    });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
+    assert.equal(h.throwCalls.length, 1);
+
+    let stopped = false;
+    h.windowEvents.get('keyup')({
+        target: h.control('Field zoom factor'), key: ' ', code: 'Space',
+        stopImmediatePropagation() { stopped = true; },
+    });
+    assert.equal(stopped, false);
+    h.document.documentEvents.get('keyup')({ key: ' ', code: 'Space' });
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 1);
+});
+
+test('mouse release outside the document cannot restart auto-click on re-entry', () => {
+    const h = makeHarness({ autoClick: true });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90, pointerType: 'mouse', buttons: 0 });
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.equal(h.intervals.size, 2);
+    h.document.documentEvents.get('pointermove')({ clientX: -10, clientY: 90, pointerType: 'mouse', buttons: 1 });
+    assert.equal(h.intervals.size, 1);
+
+    // No document mouseup fires when the button is released outside the page.
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90, pointerType: 'mouse', buttons: 0 });
+    assert.equal(h.intervals.size, 1);
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 0);
+});
+
+test('pointer cancellation ends the mouse-hold auto-click timer', () => {
+    const h = makeHarness({ autoClick: true });
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.equal(h.intervals.size, 2);
+    h.document.documentEvents.get('pointercancel')({ pointerType: 'mouse' });
+    assert.equal(h.intervals.size, 1);
+});
+
+test('failed coordinate conversion never replays a stale throw target', () => {
+    const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
+    assert.deepEqual(h.throwCalls.map(({ x, y }) => ({ x, y })), [{ x: 120, y: 90 }]);
+
+    h.game.view.field.toLocal = () => { throw new Error('transformation unavailable'); };
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 1);
+    assert.deepEqual(h.canvasEvents.map(event => event.type), ['pointerdown', 'pointerup']);
+});
+
+test('back-forward cache restoration reattaches sprite and camera hooks', () => {
+    const h = makeHarness();
+    assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+    assert.equal(h.camera.overview, true);
+    assert.equal(h.intervals.size, 1);
+
+    for (let i = 0; i < 2; i++) {
+        h.windowEvents.get('pagehide')();
+        assert.equal(h.eggHolderSprite.texture, h.oldEggTexture);
+        assert.equal(h.camera.overview, false);
+        assert.equal(h.intervals.size, 0);
+
+        h.windowEvents.get('pageshow')({ persisted: true });
+        assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
+        assert.equal(h.camera.overview, true);
+        assert.equal(h.intervals.size, 1);
+    }
+});
+
+test('preserves a game-started movement key release when focus moves to the panel', () => {
+    const h = makeHarness();
+    const zoom = h.control('Field zoom factor');
+    let stopped = 0;
+    const event = (target, repeat = false) => ({
+        target, key: 'w', code: 'KeyW', repeat,
+        stopImmediatePropagation() { stopped++; },
+    });
+
+    h.windowEvents.get('keydown')(event(h.canvas));
+    assert.equal(stopped, 0);
+    h.windowEvents.get('keydown')(event(zoom, true));
+    assert.equal(stopped, 1);
+    h.windowEvents.get('keyup')(event(zoom));
+    assert.equal(stopped, 1);
+});
+
+test('suppresses panel-started keys even if focus moves back to the game', () => {
+    const h = makeHarness();
+    const zoom = h.control('Field zoom factor');
+    let stopped = 0;
+    const event = (target, repeat = false) => ({
+        target, key: 'w', code: 'KeyW', repeat,
+        stopImmediatePropagation() { stopped++; },
+    });
+
+    h.windowEvents.get('keydown')(event(zoom));
+    h.windowEvents.get('keydown')(event(zoom, true));
+    h.windowEvents.get('keyup')(event(h.canvas));
+    assert.equal(stopped, 3);
+    h.windowEvents.get('keyup')(event(h.canvas));
+    assert.equal(stopped, 3);
+});
+
+test('back-forward cache restoration does not re-arm a previously held Space key', () => {
+    const h = makeHarness({ autoClick: true, autoClickKey: 'Space' });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
+    assert.equal(h.throwCalls.length, 1);
+
+    h.windowEvents.get('pagehide')();
+    h.windowEvents.get('pageshow')({ persisted: true });
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90 });
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 1);
+    assert.equal(h.intervals.size, 1);
+
+    h.document.documentEvents.get('keydown')({ key: ' ', code: 'Space', repeat: false });
+    assert.equal(h.throwCalls.length, 2);
+});
+
+test('back-forward cache restoration requires a fresh mouse press', () => {
+    const h = makeHarness({ autoClick: true });
+    h.rendererPointerGlobal.x = 220;
+    h.rendererPointerGlobal.y = 140;
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.equal(h.intervals.size, 2);
+
+    h.windowEvents.get('pagehide')();
+    h.windowEvents.get('pageshow')({ persisted: true });
+    h.document.documentEvents.get('pointermove')({ clientX: 120, clientY: 90, pointerType: 'mouse', buttons: 1 });
+    for (const tick of h.intervals.values()) tick();
+    assert.equal(h.throwCalls.length, 0);
+    assert.equal(h.intervals.size, 1);
+
+    h.document.documentEvents.get('mousedown')({
+        isTrusted: true, button: 0, target: h.canvas, clientX: 120, clientY: 90,
+    });
+    assert.equal(h.intervals.size, 2);
+});
+
+test('navigation clears panel key ownership and active dragging', () => {
+    const h = makeHarness();
+    const zoom = h.control('Field zoom factor');
+    h.windowEvents.get('keydown')({
+        target: zoom, key: 'w', code: 'KeyW', repeat: false,
+        stopImmediatePropagation() {},
+    });
+    const header = h.panel.children[0];
+    const originalLeft = h.panel.style.left;
+    header.fire('pointerdown', {
+        button: 0, pointerId: 7, clientX: 1100, clientY: 60, target: header, preventDefault() {},
+    });
+    h.windowEvents.get('pagehide')();
+    h.windowEvents.get('pageshow')({ persisted: true });
+    h.document.documentEvents.get('pointermove')({ pointerId: 7, clientX: 100, clientY: 140 });
+    assert.equal(h.panel.style.left, originalLeft);
+
+    let stopped = false;
+    h.windowEvents.get('keyup')({
+        target: h.canvas, key: 'w', code: 'KeyW',
+        stopImmediatePropagation() { stopped = true; },
+    });
+    assert.equal(stopped, false);
+});
