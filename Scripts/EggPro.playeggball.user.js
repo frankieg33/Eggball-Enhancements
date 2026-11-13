@@ -146,8 +146,8 @@
             const pivotY = sprite.pivot.y;
             previous = {
                 texture: sprite.texture, scaleX, scaleY, pivotX, pivotY,
-                centerX: sprite.width / 2 - pivotX * scaleX,
-                centerY: sprite.height / 2 - pivotY * scaleY,
+                centerX: Math.sign(scaleX || 1) * sprite.width * (0.5 - (sprite.anchor?.x ?? 0)) - pivotX * scaleX,
+                centerY: Math.sign(scaleY || 1) * sprite.height * (0.5 - (sprite.anchor?.y ?? 0)) - pivotY * scaleY,
             };
             changedSprites.set(sprite, previous);
         }
@@ -159,7 +159,14 @@
     function applyPerfectEggGeometry(sprite, original) {
         sprite.width = 23;
         sprite.height = 23;
-        sprite.pivot.set(11.5 - original.centerX, 11.5 - original.centerY);
+        const scaleX = sprite.scale.x || 1;
+        const scaleY = sprite.scale.y || 1;
+        const anchorX = sprite.anchor?.x ?? 0;
+        const anchorY = sprite.anchor?.y ?? 0;
+        sprite.pivot.set(
+            (Math.sign(scaleX) * 23 * (0.5 - anchorX) - original.centerX) / scaleX,
+            (Math.sign(scaleY) * 23 * (0.5 - anchorY) - original.centerY) / scaleY,
+        );
     }
 
     function restoreEggSprites() {
@@ -213,8 +220,8 @@
             const pivotY = this.pivot.y;
             const original = {
                 texture: value, scaleX, scaleY, pivotX, pivotY,
-                centerX: width / 2 - pivotX * scaleX,
-                centerY: height / 2 - pivotY * scaleY,
+                centerX: Math.sign(scaleX || 1) * width * (0.5 - (this.anchor?.x ?? 0)) - pivotX * scaleX,
+                centerY: Math.sign(scaleY || 1) * height * (0.5 - (this.anchor?.y ?? 0)) - pivotY * scaleY,
             };
             changedSprites.set(this, original);
             descriptor.set.call(this, replacement);
