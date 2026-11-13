@@ -94,6 +94,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         constructor(texture) {
             this._texture = null;
             this.scale = { x: 1, y: 1, set(x, y = x) { this.x = x; this.y = y; } };
+            this.anchor = { x: 0, y: 0, set(x, y = x) { this.x = x; this.y = y; } };
             this.pivot = { x: 0, y: 0, set(x, y) { this.x = x; this.y = y; } };
             this.width = 0;
             this.height = 0;
@@ -104,9 +105,9 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         }
         get texture() { return this._texture; }
         set texture(value) { this._texture = value; }
-        set width(value) { this._width = value; if (this.texture?.width) this.scale.x = value / this.texture.width; }
+        set width(value) { this._width = value; if (this.texture?.width) this.scale.x = Math.sign(this.scale.x || 1) * value / this.texture.width; }
         get width() { return this._width; }
-        set height(value) { this._height = value; if (this.texture?.height) this.scale.y = value / this.texture.height; }
+        set height(value) { this._height = value; if (this.texture?.height) this.scale.y = Math.sign(this.scale.y || 1) * value / this.texture.height; }
         get height() { return this._height; }
     }
 
@@ -288,6 +289,22 @@ test('replaces a color-variant egg texture immediately, before the periodic spri
     pixelPerfect.checked = false;
     pixelPerfect.fire('change');
     assert.equal(h.eggHolderSprite.texture, h.coloredEggTexture);
+});
+
+test('preserves the visual center of an anchored, mirrored egg sprite', () => {
+    const h = makeHarness();
+    const sprite = new h.window.PIXI.Sprite({ width: 62, height: 78 });
+    sprite.anchor.set(0.5, 0.5);
+    sprite.scale.x = -1;
+    sprite.scale.y = -1;
+    sprite.pivot.set(0, 0);
+    sprite.texture = h.oldEggTexture;
+    assert.equal(sprite.texture, h.perfectTexture);
+    assert.equal(sprite.width, 23);
+    const centerX = Math.sign(sprite.scale.x) * sprite.width * (0.5 - sprite.anchor.x) - sprite.pivot.x * sprite.scale.x;
+    const centerY = Math.sign(sprite.scale.y) * sprite.height * (0.5 - sprite.anchor.y) - sprite.pivot.y * sprite.scale.y;
+    assert.equal(centerX, 0);
+    assert.equal(centerY, 0);
 });
 
 test('prunes destroyed egg sprites from replacement tracking', () => {
