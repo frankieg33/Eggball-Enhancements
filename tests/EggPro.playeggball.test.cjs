@@ -9,7 +9,7 @@ const vm = require('node:vm');
 const defaultScriptPath = path.join(__dirname, '..', 'Scripts', 'EggPro.playeggball.user.js');
 const script = fs.readFileSync(process.env.EGGPRO_SCRIPT_PATH || defaultScriptPath, 'utf8');
 
-function makeHarness(savedSettings = {}, legacySettings = null, textureReady = true) {
+function makeHarness(savedSettings = {}, legacySettings = null, textureReady = true, configureEggSprite = () => {}) {
     const documentEvents = new Map();
     const windowEvents = new Map();
     const intervals = new Map();
@@ -94,6 +94,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         constructor(texture) {
             this._texture = null;
             this.scale = { x: 1, y: 1, set(x, y = x) { this.x = x; this.y = y; } };
+            this.anchor = { x: 0, y: 0, set(x, y = x) { this.x = x; this.y = y; } };
             this.pivot = { x: 0, y: 0, set(x, y) { this.x = x; this.y = y; } };
             this.width = 0;
             this.height = 0;
@@ -104,10 +105,10 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         }
         get texture() { return this._texture; }
         set texture(value) { this._texture = value; }
-        set width(value) { this._width = value; if (this.texture?.width) this.scale.x = value / this.texture.width; }
-        get width() { return this._width; }
-        set height(value) { this._height = value; if (this.texture?.height) this.scale.y = value / this.texture.height; }
-        get height() { return this._height; }
+        set width(value) { this._width = value; if (this.texture?.width) this.scale.x = Math.sign(this.scale.x || 1) * value / this.texture.width; }
+        get width() { return this.texture?.width ? Math.abs(this.scale.x) * this.texture.width : this._width; }
+        set height(value) { this._height = value; if (this.texture?.height) this.scale.y = Math.sign(this.scale.y || 1) * value / this.texture.height; }
+        get height() { return this.texture?.height ? Math.abs(this.scale.y) * this.texture.height : this._height; }
     }
 
     const makeEggSprite = (mx, my) => {
@@ -116,6 +117,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         sprite.width = 31;
         sprite.height = 39;
         sprite.pivot.set(31 - mx * 2, 39 - my * 2);
+        configureEggSprite(sprite, mx, my);
         return sprite;
     };
     const eggHolderSprite = makeEggSprite(20, 20);
@@ -288,6 +290,61 @@ test('replaces a color-variant egg texture immediately, before the periodic spri
     pixelPerfect.checked = false;
     pixelPerfect.fire('change');
     assert.equal(h.eggHolderSprite.texture, h.coloredEggTexture);
+});
+
+test('preserves and restores varied anchored sprite geometry in both replacement paths', () => {
+    const anchor = { x: 0.23, y: 0.71 };
+    const scale = { x: -0.65, y: 1.4 };
+    const pivot = { x: 5.25, y: -3.75 };
+    const expectedCenter = { x: -7.4685, y: -17.682 };
+    const configure = sprite => {
+        sprite.anchor.set(anchor.x, anchor.y);
+        sprite.scale.set(scale.x, scale.y);
+        sprite.pivot.set(pivot.x, pivot.y);
+    };
+    const cases = [
+        {
+            name: 'ebEggSprite wrapper',
+            factory: (sprite, mx, my) => { if (mx === 13.7 && my === 19.2) configure(sprite); },
+            create: h => h.window.ebEggSprite(13.7, 19.2),
+        },
+        {
+            name: 'texture setter interception',
+            create: h => {
+                const sprite = new h.window.PIXI.Sprite({ width: 62, height: 78 });
+                configure(sprite);
+                sprite.texture = h.oldEggTexture;
+                return sprite;
+            },
+        },
+    ];
+
+    for (const testCase of cases) {
+        const h = makeHarness({}, null, true, testCase.factory);
+        const sprite = testCase.create(h);
+        const center = () => ({
+            x: Math.sign(sprite.scale.x) * sprite.width * (0.5 - sprite.anchor.x) - sprite.pivot.x * sprite.scale.x,
+            y: Math.sign(sprite.scale.y) * sprite.height * (0.5 - sprite.anchor.y) - sprite.pivot.y * sprite.scale.y,
+        });
+
+        assert.equal(sprite.texture, h.perfectTexture, testCase.name);
+        assert.equal(sprite.width, 23, testCase.name);
+        assert.equal(sprite.height, 23, testCase.name);
+        assert.ok(Math.abs(center().x - expectedCenter.x) < 1e-9, testCase.name);
+        assert.ok(Math.abs(center().y - expectedCenter.y) < 1e-9, testCase.name);
+
+        const pixelPerfect = h.control('23px pixel-perfect egg');
+        pixelPerfect.checked = false;
+        pixelPerfect.fire('change');
+        assert.equal(sprite.texture, h.oldEggTexture, testCase.name);
+        assert.equal(sprite.scale.x, scale.x, testCase.name);
+        assert.equal(sprite.scale.y, scale.y, testCase.name);
+        assert.equal(sprite.pivot.x, pivot.x, testCase.name);
+        assert.equal(sprite.pivot.y, pivot.y, testCase.name);
+        assert.deepEqual({ x: sprite.anchor.x, y: sprite.anchor.y }, anchor, testCase.name);
+        assert.ok(Math.abs(center().x - expectedCenter.x) < 1e-9, testCase.name);
+        assert.ok(Math.abs(center().y - expectedCenter.y) < 1e-9, testCase.name);
+    }
 });
 
 test('prunes destroyed egg sprites from replacement tracking', () => {
