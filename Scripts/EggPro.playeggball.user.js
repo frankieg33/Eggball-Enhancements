@@ -247,7 +247,9 @@
             creatingEggSprite++;
             try { sprite = eggSpriteOriginal.call(this, mx, my); }
             finally { creatingEggSprite--; }
-            replaceEggSpriteWhenReady(sprite);
+            window.requestAnimationFrame(() => {
+                if (settings.pixelPerfect) replaceEggSpriteWhenReady(sprite);
+            });
             return sprite;
         };
         window.ebEggSprite = eggSpriteWrapper;
