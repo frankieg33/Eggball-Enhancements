@@ -22,6 +22,7 @@
     const PERFECT_EGG_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABcAAAAXCAYAAADgKtSgAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAGaSURBVEhLtZWhTgNBEIZHnCVBIHgQZEVFFUFAgkAiiuANEDgEAoM7jSAhOdkHKAmiSRGV4PsAPMIw/+zs3S7M5W4hveTrZmdn/t2bnZsSM/ciz5FwJ6yErQAjRsxhn3hxEd9INBWWAiZDYKOpq5NNiCrhXtDAwwPimyvit2fi7au4fIZx9UJ8ex3Wo6/FVZneD+FGUOeLY+KvdRDsA+uXZ9kGiG830B8T1xPv7xE3j53AGBZ19hZ1Ji4PcqyLpcIRbBA1hJNUXC8PqfACx5KkaGO6Wm76WkM5HgLxSXqQDa1XrQovoBTomPgDxFGnWm6ecynQMXHohi8v1vF/gY6JQzdMPMe/EjUhvtOTa87fG9+5FLQGE9eca7WgV3jOpUDHxLVaJpjsoM5nYsUYUoMvzAsay/y8Ff4QKrGqeNtb0CO8wCGWT60w6HqLbaBdEa9VugGEk3TkXdHEs36OFA3dAdaTVAC/nycb1II64zQF/0SI8/+JMiPRqbAR0uA+cHma4186njEiDy4a9Ypq0i/ZRsxhnwnZaTuYvgG0oJH7d9/FWQAAAABJRU5ErkJggg==';
     const settings = loadSettings();
     const changedSprites = new Map();
+    const pendingEggSprites = new WeakSet();
     let eggTextures = new Set();
     let textureHookPrototype = null;
     let originalTextureDescriptor = null;
@@ -203,6 +204,7 @@
         textureHookPrototype = prototype;
         originalTextureDescriptor = descriptor;
         textureSetterWrapper = function (value) {
+            if (pendingEggSprites.has(this)) return descriptor.set.call(this, value);
             const replacement = settings.pixelPerfect && !creatingEggSprite && eggTextures.has(value) ? getPerfectEggTexture() : null;
             if (!replacement || value === replacement) return descriptor.set.call(this, value);
             const previous = changedSprites.get(this);
@@ -247,7 +249,12 @@
             creatingEggSprite++;
             try { sprite = eggSpriteOriginal.call(this, mx, my); }
             finally { creatingEggSprite--; }
-            replaceEggSpriteWhenReady(sprite);
+            if (!sprite || (typeof sprite !== 'object' && typeof sprite !== 'function')) return sprite;
+            pendingEggSprites.add(sprite);
+            queueMicrotask(() => {
+                pendingEggSprites.delete(sprite);
+                if (settings.pixelPerfect) replaceEggSpriteWhenReady(sprite);
+            });
             return sprite;
         };
         window.ebEggSprite = eggSpriteWrapper;

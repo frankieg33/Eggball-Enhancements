@@ -14,6 +14,8 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
     const windowEvents = new Map();
     const intervals = new Map();
     const intervalDelays = new Map();
+    const microtasks = [];
+    const animationFrames = [];
     let nextTimerId = 1;
     const canvasEvents = [];
     const throwCalls = [];
@@ -154,6 +156,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         addEventListener(type, handler) { windowEvents.set(type, handler); },
         innerWidth: 1200,
         innerHeight: 900,
+        requestAnimationFrame(callback) { animationFrames.push(callback); },
     };
     const document = {
         readyState: 'loading',
@@ -202,6 +205,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         clearInterval(id) { intervals.delete(id); intervalDelays.delete(id); },
         setTimeout() { return nextTimerId++; },
         clearTimeout() {},
+        queueMicrotask(callback) { microtasks.push(callback); },
     });
     documentEvents.get('DOMContentLoaded')();
 
@@ -214,6 +218,7 @@ function makeHarness(savedSettings = {}, legacySettings = null, textureReady = t
         intervals, intervalDelays, canvasEvents, throwCalls, eggHolderSprite, looseEggSprite, perfectTexture, oldEggTexture, coloredEggTexture,
         rendererPointerGlobal,
         getDetachedWidthReads: () => detachedWidthReads,
+        flushMicrotasks() { for (const callback of microtasks.splice(0)) callback(); },
         getStoredSettings: () => savedSettings,
         markTextureReady() {
             perfectTexture.width = 23;
@@ -246,6 +251,7 @@ test('replaces the live Eggball sprite API and existing held and loose eggs', ()
     assert.equal(h.eggHolderSprite.texture, h.perfectTexture);
     assert.equal(h.looseEggSprite.texture, h.perfectTexture);
     const created = h.window.ebEggSprite(20, 20);
+    h.flushMicrotasks();
     assert.equal(created.texture, h.perfectTexture);
     assert.equal(created.width, 23);
     assert.equal(created.height, 23);
@@ -262,6 +268,7 @@ test('replaces the live Eggball sprite API and existing held and loose eggs', ()
 test('waits for the replacement image to load before resizing a new egg sprite', () => {
     const h = makeHarness({}, null, false);
     const created = h.window.ebEggSprite(20, 20);
+    h.flushMicrotasks();
     assert.equal(created.texture, h.oldEggTexture);
     assert.equal(created.width / 2 - created.pivot.x * created.scale.x, 20);
     assert.equal(created.height / 2 - created.pivot.y * created.scale.y, 20);
@@ -306,7 +313,11 @@ test('preserves and restores varied anchored sprite geometry in both replacement
         {
             name: 'ebEggSprite wrapper',
             factory: (sprite, mx, my) => { if (mx === 13.7 && my === 19.2) configure(sprite); },
-            create: h => h.window.ebEggSprite(13.7, 19.2),
+            create: h => {
+                const sprite = h.window.ebEggSprite(13.7, 19.2);
+                h.flushMicrotasks();
+                return sprite;
+            },
         },
         {
             name: 'texture setter interception',
@@ -347,9 +358,42 @@ test('preserves and restores varied anchored sprite geometry in both replacement
     }
 });
 
+test('replaces the startup egg before paint after synchronous geometry setup', () => {
+    const h = makeHarness();
+    const sprite = h.window.ebEggSprite(20, 20);
+
+    sprite.anchor.set(0.5);
+    sprite.pivot.set(-40, -40);
+    assert.equal(sprite.texture, h.oldEggTexture);
+
+    h.flushMicrotasks();
+    assert.equal(sprite.texture, h.perfectTexture);
+    assert.equal(sprite.width, 23);
+    assert.equal(sprite.height, 23);
+    assert.equal(sprite.width * (0.5 - sprite.anchor.x) - sprite.pivot.x * sprite.scale.x, 20);
+    assert.equal(sprite.height * (0.5 - sprite.anchor.y) - sprite.pivot.y * sprite.scale.y, 20);
+});
+
+test('defers color-variant texture interception until startup geometry is finalized', () => {
+    const h = makeHarness();
+    const sprite = h.window.ebEggSprite(20, 20);
+
+    sprite.texture = h.coloredEggTexture;
+    sprite.anchor.set(0.5);
+    sprite.pivot.set(-30, -30);
+    h.flushMicrotasks();
+
+    assert.equal(sprite.texture, h.perfectTexture);
+    assert.equal(sprite.width, 23);
+    assert.equal(sprite.height, 23);
+    assert.equal(sprite.width * (0.5 - sprite.anchor.x) - sprite.pivot.x * sprite.scale.x, 15);
+    assert.equal(sprite.height * (0.5 - sprite.anchor.y) - sprite.pivot.y * sprite.scale.y, 15);
+});
+
 test('prunes destroyed egg sprites from replacement tracking', () => {
     const h = makeHarness();
     const created = h.window.ebEggSprite(20, 20);
+    h.flushMicrotasks();
     for (const update of h.intervals.values()) update();
     assert.match(h.status.textContent, /replaced \(3\)/);
 
